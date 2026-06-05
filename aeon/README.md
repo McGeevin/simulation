@@ -42,7 +42,7 @@ aeon/
 ## What's Implemented
 
 **Phase 1 (Core)**
-- Full setup screen with 12 races, 9 focuses, 13 weapons, 8 governments, 11 biomes — each with lore-rich descriptions and live **stat lines** (colour-coded modifier breakdowns; weapons also show unlock age, a combat-power rating with stars, effect tags, and requirements)
+- Full setup screen with 16 races, 12 focuses, 16 weapons, 11 governments, 15 biomes — each with lore-rich descriptions, a **hover tooltip** brief, and live **stat lines** (colour-coded modifier breakdowns; weapons also show unlock age, a combat-power rating with stars, effect tags, and requirements)
 - World settings: **simulation length (500–10,000 years)**, map size (up to 150×96), disaster frequency, starting tech, interaction mode, seed
 - Split-biome map generation with wavy contested borders, winding rivers, and per-biome terrain detail
 - Yearly tick simulation: population, food, metal, wood, gold, knowledge, faith, magic
@@ -50,7 +50,7 @@ aeon/
 - Time controls: pause / 1x / 10x / 100x / MAX, plus Skip-to-End
 
 **Phase 2 (Depth)**
-- Tech tree with 7 ages, focus-weighted progression
+- Tech tree with 12 ages, focus-weighted progression
 - Cultural events (golden ages, schisms, breakthroughs, succession crises, rebellions, etc.)
 - Biome-specific disasters (volcanic eruptions, blizzards, droughts, floods, plagues)
 - Settlements visibly grow through tiers (tent → metropolis)
@@ -73,6 +73,13 @@ aeon/
 - Map legend, vignette, animated water, and a timeline that auto-scales to the run length
 - Display/UI/mono font system, refined palette with gradients and glows, morale/stability bars, custom scrollbars
 - Incremental owned-tile caching keeps even a 10,000-year run on the huge map under ~2 seconds when skipped to the end
+
+**Phase 5 (Living Map + Codex)**
+- **Ambient citizens**: small figures of each race wander between their settlements in real time, so the map feels populated (purely cosmetic — never affects the deterministic sim)
+- **Construction animations**: every new or upgraded settlement rises out of the ground behind scaffolding, with dust and chimney smoke
+- **Biome-themed terrain** driven by a `terrain` archetype: forests fill with trees, coastlines grow a real sea with sandy beaches and foam, mountains gain snow-capped peaks, volcanic land glows with animated lava, deserts ripple with dunes, taiga mixes pines and snow, etc.
+- **Hover tooltips** on every picker for a quick overview before you commit
+- **Codex modal** ("📊 Compare All Options"): a dropdown switches between comparison charts for Races / Focuses / Governments / Weapons / Biomes / Tech Ages — diverging stat bars for the mod-based categories, a combat-power chart for weapons, and a knowledge/army-multiplier chart for the ages
 
 ## Customization Pointers
 

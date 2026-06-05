@@ -128,7 +128,29 @@
     </div>
 
     <div class="setup-footer">
+      <button id="open-sheet" class="secondary-btn" type="button">📊 Compare All Options</button>
       <button id="start-btn">BEGIN SIMULATION</button>
+    </div>
+  </div>
+
+  <!-- ============ STATS SHEET MODAL ============ -->
+  <div id="sheet-modal" class="sheet-modal">
+    <div class="sheet-box">
+      <div class="sheet-head">
+        <h2>CODEX</h2>
+        <label class="sheet-cat-label">Category
+          <select id="sheet-category">
+            <option value="race" selected>Races</option>
+            <option value="focus">Focuses</option>
+            <option value="government">Governments</option>
+            <option value="weapon">Special Weapons</option>
+            <option value="biome">Biomes</option>
+            <option value="age">Tech Ages</option>
+          </select>
+        </label>
+        <button id="sheet-close" type="button" title="Close">✕</button>
+      </div>
+      <div class="sheet-content" id="sheet-content"></div>
     </div>
   </div>
 

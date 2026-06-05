@@ -27,7 +27,14 @@ const FEAT = {
   TUFT: 4,
   VINE: 5,   // jungle
   ROCK: 6,   // generic rocky scatter
+  LAVA: 7,   // volcanic cracks
+  BEACH: 8,  // sand where land meets sea
 };
+
+function terrainOf(biomeKey) {
+  const b = BIOMES[biomeKey];
+  return (b && b.terrain) || 'plains';
+}
 
 function generateMap(width, height, biomeA, biomeB, rng) {
   const tiles = [];
@@ -72,57 +79,89 @@ function generateMap(width, height, biomeA, biomeB, rng) {
     }
   }
 
-  // Pass 2: features (hills, water bodies, resource tiles, decoration)
+  // Pass 2: features keyed on the biome's terrain archetype, so new
+  // biomes look right automatically. Coastal/archipelago grow a real sea
+  // along the outer edge of the map so the shoreline reads as a coast.
+  const seaDepth = Math.max(2, Math.floor(width * 0.05));
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const t = tiles[y][x];
       const r = rng.next();
+      const arch = terrainOf(t.biomeKey);
 
-      switch (t.biomeKey) {
-        case 'coastal':
-          if (r < 0.20) t.type = TILE.WATER;
-          else if (r < 0.26) t.feature = FEAT.ROCK;
+      // Distance from this tile's nearest outer (non-contested) edge.
+      const isLeftHalf = x < width / 2;
+      const edgeDist = isLeftHalf ? x : (width - 1 - x);
+      const seaLine = seaDepth + Math.round(Math.sin(y * 0.35) * 2);
+
+      switch (arch) {
+        case 'coast':
+          if (edgeDist < seaLine) t.type = TILE.WATER;
+          else if (edgeDist < seaLine + 1) t.feature = FEAT.BEACH;
+          else if (r < 0.10) t.type = TILE.WATER;        // inland coves
+          else if (r < 0.16) t.feature = FEAT.ROCK;
+          break;
+        case 'archipelago':
+          if (edgeDist < seaLine || r < 0.46) t.type = TILE.WATER;
+          else if (r < 0.55) t.feature = FEAT.BEACH;
+          else if (r < 0.66) t.feature = FEAT.TREE;       // palms on the isles
           break;
         case 'mountain':
-          if (r < 0.40) t.type = TILE.HILL;
+          if (r < 0.42) t.type = TILE.HILL;
+          else if (r < 0.50) t.feature = FEAT.ROCK;
+          break;
+        case 'highlands':
+          if (r < 0.30) t.type = TILE.HILL;
+          else if (r < 0.55) t.feature = FEAT.TUFT;
           break;
         case 'volcanic':
           if (r < 0.22) t.type = TILE.HILL;
-          else if (r < 0.30) t.feature = FEAT.ROCK;
+          else if (r < 0.30) t.feature = FEAT.LAVA;
+          else if (r < 0.40) t.feature = FEAT.ROCK;
           break;
         case 'forest':
-          if (r < 0.38) t.feature = FEAT.TREE;
+          if (r < 0.55) t.feature = FEAT.TREE;
+          else if (r < 0.60) t.feature = FEAT.TUFT;
+          break;
+        case 'taiga':
+          if (r < 0.50) t.feature = FEAT.TREE;
+          else if (r < 0.66) t.feature = FEAT.ICE;
           break;
         case 'jungle':
-          if (r < 0.48) t.feature = FEAT.TREE;
-          else if (r < 0.60) t.feature = FEAT.VINE;
-          else if (r < 0.66) t.type = TILE.WATER;
+          if (r < 0.58) t.feature = FEAT.TREE;
+          else if (r < 0.72) t.feature = FEAT.VINE;
+          else if (r < 0.78) t.type = TILE.WATER;
           break;
         case 'desert':
-          if (r < 0.10) t.feature = FEAT.DUNE;
+          if (r < 0.16) t.feature = FEAT.DUNE;
+          break;
+        case 'badlands':
+          if (r < 0.16) t.type = TILE.HILL;
+          else if (r < 0.30) t.feature = FEAT.ROCK;
+          else if (r < 0.40) t.feature = FEAT.DUNE;
           break;
         case 'tundra':
-          if (r < 0.16) t.feature = FEAT.ICE;
-          else if (r < 0.24) t.type = TILE.HILL;
+          if (r < 0.20) t.feature = FEAT.ICE;
+          else if (r < 0.30) t.type = TILE.HILL;
           break;
         case 'swamp':
-          if (r < 0.24) t.type = TILE.WATER;
-          else if (r < 0.36) t.feature = FEAT.TUFT;
+          if (r < 0.26) t.type = TILE.WATER;
+          else if (r < 0.40) t.feature = FEAT.TUFT;
           break;
         case 'plains':
-          if (r < 0.14) t.feature = FEAT.TUFT;
+          if (r < 0.18) t.feature = FEAT.TUFT;
           break;
         case 'savanna':
-          if (r < 0.16) t.feature = FEAT.TUFT;
-          else if (r < 0.20) t.feature = FEAT.TREE;
+          if (r < 0.18) t.feature = FEAT.TUFT;
+          else if (r < 0.24) t.feature = FEAT.TREE;
           break;
         case 'steppe':
-          if (r < 0.18) t.feature = FEAT.TUFT;
+          if (r < 0.22) t.feature = FEAT.TUFT;
           break;
       }
 
       // Small chance of a resource node on open ground
-      if (r > 0.97 && t.type === TILE.TERRAIN && t.feature === FEAT.NONE) {
+      if (r > 0.975 && t.type === TILE.TERRAIN && t.feature === FEAT.NONE) {
         t.type = TILE.RESOURCE;
       }
 

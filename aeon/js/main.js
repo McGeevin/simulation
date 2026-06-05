@@ -24,6 +24,8 @@ const Game = {
 
 function init() {
   populateSelects();
+  initOptionTooltips();
+  initStatsSheet();
 
   document.getElementById('start-btn').addEventListener('click', startSim);
   document.getElementById('back-to-setup').addEventListener('click', backToSetup);
@@ -178,7 +180,7 @@ function gameLoop(timestamp) {
   else if (Game.phase === 'battle') battleStep();
 
   if (Game.renderer && (Game.phase === 'sim' || Game.phase === 'battle')) {
-    Game.renderer.render(Game.civA, Game.civB, Game.year);
+    Game.renderer.render(Game.civA, Game.civB, Game.year, Game.phase === 'battle' ? 'battle' : 'sim');
     document.getElementById('year').textContent = Game.year;
   }
   if (Game.timeline && Game.phase === 'sim') Game.timeline.render(Game.year);

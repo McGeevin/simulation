@@ -253,7 +253,11 @@ function applyRandomEvent(civ, year, world, log) {
 
 function applyDisaster(civ, year, log) {
   // Biome-specific disasters
-  const biomeDisasters = { volcanic: 'eruption', tundra: 'blizzard', desert: 'drought', swamp: 'flood' };
+  const biomeDisasters = {
+    volcanic: 'eruption', tundra: 'blizzard', desert: 'drought', swamp: 'flood',
+    jungle: 'wildfire', savanna: 'wildfire', steppe: 'sandstorm',
+    highlands: 'blizzard', archipelago: 'flood', badlands: 'sandstorm', taiga: 'blizzard',
+  };
   const key = biomeDisasters[civ.biome] || 'plague';
   const ev = EVENTS[key];
   if (!ev) return;

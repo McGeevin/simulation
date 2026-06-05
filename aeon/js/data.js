@@ -2,8 +2,9 @@
 // AEON :: DATA DEFINITIONS
 // All races, focuses, weapons, governments, biomes, tech ages.
 // `mods` stack multiplicatively when applied (see getMod in sim.js).
-// `desc` = one-line summary shown in the picker.
+// `desc`   = one-line summary (used in pickers + hover tooltips).
 // `flavor` = longer lore shown in the option card.
+// Biomes also carry a `terrain` archetype that drives map drawing.
 // ============================================================
 
 const RACES = {
@@ -33,7 +34,7 @@ const RACES = {
     desc: 'Master miners & engineers. Fortify everything.',
     flavor: 'Carvers of mountains and forgers of legend. Dwarves turn stone into citadels and ore into unbreakable lines of defense.',
     mods: { research: 1.05, growth: 0.90, military: 1.10, defense: 1.40, metal: 1.50 },
-    biomePref: ['mountain','volcanic'],
+    biomePref: ['mountain','volcanic','highlands'],
   },
   lizardfolk: {
     name: 'Lizardfolk',
@@ -41,22 +42,22 @@ const RACES = {
     flavor: 'Sun-warmed predators of the marsh and dune. They heal fast and breed steadily, but the bite of frost slows their cold blood to a crawl.',
     mods: { research: 0.95, growth: 1.10, military: 1.05 },
     biomePref: ['desert','swamp','jungle'],
-    biomePenalty: { tundra: 0.6 },
+    biomePenalty: { tundra: 0.6, taiga: 0.7 },
   },
   frostborn: {
     name: 'Frostborn',
     desc: 'Hardy folk of the ice. Heat withers them.',
     flavor: 'Born of glacier and storm, the frostborn endure where others freeze. Their resilience is legendary — but a desert sun is a slow execution.',
     mods: { research: 0.95, growth: 0.95, military: 1.15, defense: 1.10 },
-    biomePref: ['tundra','mountain'],
-    biomePenalty: { desert: 0.5, volcanic: 0.7, savanna: 0.8 },
+    biomePref: ['tundra','mountain','taiga'],
+    biomePenalty: { desert: 0.5, volcanic: 0.7, savanna: 0.8, badlands: 0.7 },
   },
   avians: {
     name: 'Avians',
     desc: 'Winged scouts. Swift and far-seeing, but few and fragile.',
     flavor: 'Sky-dwellers who map the world from above. Their unmatched sight comes at the cost of fragile bodies and small, hard-won populations.',
     mods: { research: 1.05, growth: 0.85, military: 0.95, scouting: 2.0 },
-    biomePref: ['mountain','plains','coastal'],
+    biomePref: ['mountain','plains','coastal','highlands'],
     popCapMod: 0.75,
   },
   constructs: {
@@ -64,7 +65,7 @@ const RACES = {
     desc: 'Built, not born. No food needed — but growth costs metal + knowledge.',
     flavor: 'Tireless automata that neither hunger nor age. Every new unit must be forged, so a construct nation lives and dies by its mines and its minds.',
     mods: { research: 1.0, growth: 0.0, military: 1.10, defense: 1.20 },
-    biomePref: ['mountain','desert','volcanic'],
+    biomePref: ['mountain','desert','volcanic','badlands'],
     special: 'constructed',
   },
   goblins: {
@@ -72,7 +73,7 @@ const RACES = {
     desc: 'Numberless and cunning. Quantity is its own quality.',
     flavor: 'Individually weak and short-lived, goblins overwhelm through sheer fecundity and low cunning. A goblin horde is a tide that drowns better soldiers.',
     mods: { research: 0.90, growth: 1.35, military: 0.90, lifespan: 0.80, gold: 1.15 },
-    biomePref: ['swamp','jungle','mountain'],
+    biomePref: ['swamp','jungle','mountain','badlands'],
     popCapMod: 1.30,
   },
   merfolk: {
@@ -80,16 +81,16 @@ const RACES = {
     desc: 'Coastal traders attuned to tide and current. Deserts kill.',
     flavor: 'Dwellers of the shoreline and shallow sea. Masters of trade and current, they wither far from water and treat the open desert as a death sentence.',
     mods: { research: 1.10, growth: 1.0, military: 1.0, trade: 1.30, magic: 1.10 },
-    biomePref: ['coastal','swamp'],
-    biomePenalty: { desert: 0.5, volcanic: 0.6 },
+    biomePref: ['coastal','swamp','archipelago'],
+    biomePenalty: { desert: 0.5, volcanic: 0.6, badlands: 0.6 },
   },
   infernals: {
     name: 'Infernals',
     desc: 'Demonic warlords — mighty and magical, but restless.',
     flavor: 'Exiles of some burning realm, infernals wield fire and dread in equal measure. Their power is immense; their patience and their peace are not.',
     mods: { research: 0.95, growth: 0.75, military: 1.35, magic: 1.30, lifespan: 1.20, stability: 0.92 },
-    biomePref: ['volcanic','desert'],
-    biomePenalty: { tundra: 0.6 },
+    biomePref: ['volcanic','desert','badlands'],
+    biomePenalty: { tundra: 0.6, taiga: 0.7 },
   },
   fae: {
     name: 'Fae',
@@ -98,6 +99,37 @@ const RACES = {
     mods: { research: 1.20, growth: 0.80, military: 0.80, magic: 1.60, lifespan: 1.30 },
     biomePref: ['forest','swamp','jungle'],
     popCapMod: 0.80,
+  },
+  giants: {
+    name: 'Giants',
+    desc: 'Mountain-born colossi. Few, slow, and unstoppable in a fight.',
+    flavor: 'Each giant is a walking siege engine. They breed rarely and tire the land that feeds them, but a single warband can shatter an army.',
+    mods: { research: 0.90, growth: 0.70, military: 1.45, defense: 1.25, lifespan: 1.20 },
+    biomePref: ['mountain','tundra','highlands'],
+    popCapMod: 0.65,
+  },
+  undead: {
+    name: 'Undead',
+    desc: 'The tireless dead. They do not flee, mourn, or break.',
+    flavor: 'A nation that death cannot diminish. The undead grow slowly but never panic and never age — a patient, relentless tide of bone and will.',
+    mods: { research: 0.90, growth: 0.85, military: 1.20, stability: 1.25, lifespan: 2.0, magic: 1.15 },
+    biomePref: ['swamp','tundra','badlands'],
+    biomePenalty: { coastal: 0.85 },
+  },
+  beastfolk: {
+    name: 'Beastfolk',
+    desc: 'Fierce, mobile clans of the open wild.',
+    flavor: 'Half-beast hunters who run down anything that flees. They thrive on open ground, scouting wide and striking fast.',
+    mods: { research: 0.90, growth: 1.15, military: 1.15, armyGrowth: 1.10, scouting: 1.30 },
+    biomePref: ['plains','savanna','steppe','forest'],
+  },
+  insectoids: {
+    name: 'Insectoids',
+    desc: 'A chitinous swarm. Countless, expendable, ever-growing.',
+    flavor: 'A single sprawling brood-mind in a million bodies. Insectoids drown the map in numbers, trading the individual for the inexhaustible whole.',
+    mods: { research: 0.85, growth: 1.40, military: 1.05, defense: 1.10 },
+    biomePref: ['jungle','swamp','desert','badlands'],
+    popCapMod: 1.45,
   },
 };
 
@@ -131,7 +163,7 @@ const FOCUSES = {
     desc: 'Rituals, summons and arcane war. Race-dependent.',
     flavor: 'Where others see limits, mages see leverage. Magic warps growth, war, and the world itself — for those born able to wield it.',
     mods: { magicGen: 1.80, research: 1.10, armyGrowth: 0.95 },
-    requires: ['elves','humans','lizardfolk','frostborn','avians','merfolk','infernals','fae'],
+    requires: ['elves','humans','lizardfolk','frostborn','avians','merfolk','infernals','fae','undead'],
   },
   industry: {
     name: 'Industry',
@@ -157,9 +189,34 @@ const FOCUSES = {
     flavor: 'Win without fighting. Diplomatic states prosper behind a wall of treaties — formidable to invade, but slow to march themselves.',
     mods: { diplomacy: 1.50, gold: 1.20, stability: 1.20, morale: 1.10, defense: 1.10, armyGrowth: 0.80 },
   },
+  espionage: {
+    name: 'Espionage',
+    desc: 'Shadows and saboteurs. Quietly undermines every rival.',
+    flavor: 'The dagger behind the smile. Spymaster states thrive on stolen secrets and steady nerves, rarely seen and never quite trusted.',
+    mods: { scouting: 1.40, gold: 1.15, stability: 1.10, research: 1.05, armyGrowth: 0.95, eventVariance: 0.80 },
+  },
+  seafaring: {
+    name: 'Seafaring',
+    desc: 'Masters of the waves — trade, food and far horizons.',
+    flavor: 'The sea is a highway to the world\'s wealth. Seafaring peoples grow fat on fish and foreign gold, weakest only when dragged inland.',
+    mods: { trade: 1.40, gold: 1.20, food: 1.10, scouting: 1.30, economy: 1.10, armyGrowth: 0.95 },
+  },
+  culture: {
+    name: 'Culture',
+    desc: 'Art, faith and identity. A people impossible to break.',
+    flavor: 'Monuments, myths, and music. A cultural golden age binds a nation together so tightly that no defeat can truly end it.',
+    mods: { morale: 1.30, stability: 1.25, diplomacy: 1.20, faithGen: 1.20, weaponTech: 0.90 },
+  },
 };
 
 const WEAPONS = {
+  chariots: {
+    name: 'War Chariots',
+    desc: 'The first shock weapon. Devastating in the early ages.',
+    flavor: 'Bronze-age terror on wheels. Chariots crash through loose ranks and rule the battlefield until the spear-wall learns to hold.',
+    unlockAge: 1, // Bronze
+    battleMod: { shock: 1.40, attack: 1.15 },
+  },
   cavalry: {
     name: 'Heavy Cavalry',
     desc: 'Early shock troops. Break lines before the enemy is ready.',
@@ -202,6 +259,14 @@ const WEAPONS = {
     flavor: 'Why win a battle when you can win before it begins? Plague bearers ensure the enemy fields the sick, the weak, and the dying.',
     unlockAge: 3, // Medieval
     battleMod: { preBattle: 0.30, morale: 0.85 },
+  },
+  dragonRiders: {
+    name: 'Dragon Riders',
+    desc: 'Winged death. Fire from above and primal terror below.',
+    flavor: 'To tame a dragon is to own the sky. Few weapons of any age match the fear and fury a dragonflight brings to the field.',
+    unlockAge: 3, // Medieval
+    battleMod: { shock: 1.60, fear: 1.60, ranged: 1.50 },
+    requires: { race: ['elves','infernals','lizardfolk','fae'] },
   },
   arcaneStorm: {
     name: 'Arcane Tempest',
@@ -249,6 +314,14 @@ const WEAPONS = {
     battleMod: { attack: 2.60, defense: 2.0, elite: 1.50 },
     requires: { focusOr: ['industry','magic','science'] },
   },
+  nanoswarm: {
+    name: 'Nanite Swarm',
+    desc: 'A self-replicating cloud that devours armor and flesh alike.',
+    flavor: 'Invisible, tireless, and merciless. The nanite swarm corrodes the enemy before the battle and consumes them during it.',
+    unlockAge: 8, // Information
+    battleMod: { attack: 2.20, antiDefense: 1.80, preBattle: 0.50 },
+    requires: { focusOr: ['science','industry'] },
+  },
   orbital: {
     name: 'Orbital Strike',
     desc: 'Fire from the heavens. The ultimate ranged weapon.',
@@ -289,7 +362,7 @@ const GOVERNMENTS = {
     desc: 'No dissent, no surprises. Relentlessly steady.',
     flavor: 'A single will across countless bodies. The hive knows neither rebellion nor inspiration — only the slow, certain grind of consensus.',
     mods: { stability: 1.50, eventVariance: 0.40, research: 0.95 },
-    requires: { race: ['constructs','lizardfolk','goblins'] },
+    requires: { race: ['constructs','lizardfolk','goblins','insectoids','undead'] },
   },
   democracy: {
     name: 'Democracy',
@@ -309,85 +382,131 @@ const GOVERNMENTS = {
     flavor: 'Fear keeps the order and fear builds the army. The autocrat\'s grip is absolute until, all at once, it is not.',
     mods: { armyGrowth: 1.30, stability: 0.95, morale: 0.95, research: 0.90, eventVariance: 1.40 },
   },
+  technocracy: {
+    name: 'Technocracy',
+    desc: 'Rule by the brilliant. Research above all.',
+    flavor: 'The experts govern, and progress is policy. A technocracy out-thinks every rival, even if its people feel more like data than citizens.',
+    mods: { research: 1.25, weaponTech: 1.10, stability: 1.05, morale: 0.95, faithGen: 0.80 },
+  },
+  federation: {
+    name: 'Federation',
+    desc: 'Many states, one banner. Prosperous and resilient.',
+    flavor: 'Strength through union. A federation pools wealth and wisdom across its members, slow to anger but very hard to topple.',
+    mods: { gold: 1.15, research: 1.10, stability: 1.15, diplomacy: 1.20, armyGrowth: 0.90 },
+  },
+  horde: {
+    name: 'Horde',
+    desc: 'Endless aggression and growth. No brakes, no ceiling on chaos.',
+    flavor: 'A nation that is always on the move and always at war. The horde swells and strikes without pause — and without much thought.',
+    mods: { armyGrowth: 1.35, growth: 1.15, research: 0.75, stability: 0.90, eventVariance: 1.30 },
+  },
 };
 
 const BIOMES = {
   forest: {
-    name: 'Forest',
+    name: 'Forest', terrain: 'forest',
     desc: 'Timber and game. Balanced and forgiving.',
     flavor: 'Endless canopy rich in wood and quarry, sheltering settlements from the wind and the eye.',
     mods: { food: 1.10, wood: 1.50, metal: 0.80 },
     color: '#2d5a3a', colorAlt: '#3a6b47', feature: '#4a7a55',
   },
   mountain: {
-    name: 'Mountain',
+    name: 'Mountain', terrain: 'mountain',
     desc: 'Deep metals and natural fortresses. Hungry and slow.',
     flavor: 'Iron bones beneath stone skin. Hard to farm, harder to conquer — every peak is a wall.',
     mods: { food: 0.70, metal: 1.50, defense: 1.30 },
     color: '#5a5a5a', colorAlt: '#6b6b6b', feature: '#888888',
   },
   desert: {
-    name: 'Desert',
+    name: 'Desert', terrain: 'desert',
     desc: 'Sparse now; oil, gems and gold later.',
     flavor: 'A patient land. The desert starves the early settler and enriches the one who endures to dig deep.',
     mods: { food: 0.60, gold: 1.20, lateGold: 1.50 },
     color: '#c9a96b', colorAlt: '#d6b878', feature: '#a8893f',
   },
   tundra: {
-    name: 'Tundra',
+    name: 'Tundra', terrain: 'tundra',
     desc: 'Harsh, defensible, and unyielding.',
     flavor: 'Frozen ground that gives little and forgives nothing. Only the hardy carve a home from the ice.',
     mods: { food: 0.55, metal: 1.10, defense: 1.10 },
     color: '#a8b5c4', colorAlt: '#bcc6d1', feature: '#e0e6ec',
   },
   plains: {
-    name: 'Plains',
+    name: 'Plains', terrain: 'plains',
     desc: 'Abundant food and easy expansion. No cover.',
     flavor: 'Open, golden, and generous. Crops and armies grow fast here — and there is nowhere to hide from either.',
     mods: { food: 1.40, defense: 0.80, armyGrowth: 1.10 },
     color: '#7a9a5a', colorAlt: '#8aaa6a', feature: '#a0c073',
   },
   swamp: {
-    name: 'Swamp',
+    name: 'Swamp', terrain: 'swamp',
     desc: 'Disease and raw magic in the mire.',
     flavor: 'Fetid water and whispering reeds. Sickness festers here, but so do the strange energies mages crave.',
     mods: { food: 0.85, magicGen: 1.30, growth: 0.90 },
     color: '#4a5a3a', colorAlt: '#556a45', feature: '#6a7d4a',
   },
   coastal: {
-    name: 'Coastal',
+    name: 'Coastal', terrain: 'coast',
     desc: 'Trade, food, and naval reach.',
     flavor: 'Where land meets the trade winds. Harbors fill with grain and gold, and the sea is a road to everywhere.',
     mods: { food: 1.20, gold: 1.30, trade: 1.40 },
-    color: '#3a6a8a', colorAlt: '#4a7a9a', feature: '#d4c898',
+    color: '#5a8a6a', colorAlt: '#6a9a78', feature: '#d8c56a',
   },
   volcanic: {
-    name: 'Volcanic',
+    name: 'Volcanic', terrain: 'volcanic',
     desc: 'Fabulously metal-rich. Periodically catastrophic.',
     flavor: 'Black glass and molten veins. The richest ore in the world, guarded by the mountain\'s temper.',
     mods: { food: 0.50, metal: 1.80, gold: 1.20 },
-    color: '#5a3a3a', colorAlt: '#6b4747', feature: '#c43a1a',
+    color: '#4a3232', colorAlt: '#5a3c3c', feature: '#c43a1a',
   },
   jungle: {
-    name: 'Jungle',
+    name: 'Jungle', terrain: 'jungle',
     desc: 'Lush, defensible, magic-soaked — and disease-ridden.',
     flavor: 'A riot of green that hides as much as it feeds. Vines choke the careless and the air hums with wild magic.',
     mods: { food: 1.20, wood: 1.40, magicGen: 1.15, defense: 1.10, metal: 0.70 },
     color: '#1f4d2b', colorAlt: '#286038', feature: '#3f8a4a',
   },
   savanna: {
-    name: 'Savanna',
+    name: 'Savanna', terrain: 'savanna',
     desc: 'Sweeping grassland — fast herds, fast armies.',
     flavor: 'Sun-baked plains stretching to the horizon. Grazing is rich and warbands raised here move like wildfire.',
     mods: { food: 1.25, armyGrowth: 1.15, gold: 1.10, defense: 0.85, wood: 0.70 },
     color: '#9a8a4a', colorAlt: '#aa9a55', feature: '#c0b070',
   },
   steppe: {
-    name: 'Steppe',
+    name: 'Steppe', terrain: 'steppe',
     desc: 'Nomad country — horse, herd, and raid.',
     flavor: 'Cold, windswept grasslands made for riders. Mobility is everything; walls mean nothing.',
     mods: { food: 1.10, armyGrowth: 1.25, growth: 1.05, defense: 0.75, metal: 0.90 },
     color: '#8a8a5a', colorAlt: '#999a6a', feature: '#b0b080',
+  },
+  highlands: {
+    name: 'Highlands', terrain: 'highlands',
+    desc: 'Green hills and crags — defensible and mineral-rich.',
+    flavor: 'Rolling moors over stubborn stone. Hard to march through, easy to defend, and seamed with good ore.',
+    mods: { food: 0.90, metal: 1.25, defense: 1.25, wood: 1.10 },
+    color: '#4a6a4a', colorAlt: '#557a55', feature: '#6a8a5a',
+  },
+  archipelago: {
+    name: 'Archipelago', terrain: 'archipelago',
+    desc: 'Scattered isles — superb trade, natural sea walls.',
+    flavor: 'A constellation of islands ringed by warm shallows. The sea both feeds and fortifies those who learn to sail it.',
+    mods: { food: 1.15, gold: 1.25, trade: 1.45, defense: 1.20, metal: 0.70 },
+    color: '#4a8a7a', colorAlt: '#56998a', feature: '#d4c898',
+  },
+  badlands: {
+    name: 'Badlands', terrain: 'badlands',
+    desc: 'Cracked red rock — ore and gold beneath the dust.',
+    flavor: 'A scorched maze of canyons and mesas. Little grows, but the bones of the earth lie close to the surface.',
+    mods: { food: 0.55, metal: 1.30, gold: 1.15, lateGold: 1.30, defense: 1.05 },
+    color: '#8a5a3a', colorAlt: '#9a6a45', feature: '#b07a4a',
+  },
+  taiga: {
+    name: 'Taiga', terrain: 'taiga',
+    desc: 'Snow-laden pine forest — timber in a frozen land.',
+    flavor: 'Dark evergreens under endless snow. Wood is plentiful and the cold keeps the faint-hearted away.',
+    mods: { food: 0.80, wood: 1.40, metal: 1.10, defense: 1.10 },
+    color: '#3a5048', colorAlt: '#445a50', feature: '#5a7060',
   },
 };
 

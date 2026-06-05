@@ -25,6 +25,7 @@ function populateSelect(selectEl, source, defaultKey) {
     const opt = document.createElement('option');
     opt.value = key;
     opt.textContent = item.name;
+    opt.title = item.desc || '';   // native per-option hover hint
     if (key === defaultKey) opt.selected = true;
     selectEl.appendChild(opt);
   }
@@ -273,4 +274,159 @@ function renderAftermathPower(outcome) {
     </div>
     <p class="pb-foot">Battle power = troops × tech-age arms, then multiplied by doctrine, morale, stability, terrain, fortification and any special weapon. A final ±10% "fog of war" roll decides close fights.</p>
   `;
+}
+
+// ============================================================
+// HOVER TOOLTIPS — a floating popup with a brief overview of the
+// currently-selected option for each picker.
+// ============================================================
+const FIELD_SOURCES = { race: RACES, focus: FOCUSES, government: GOVERNMENTS, weapon: WEAPONS, biome: BIOMES };
+
+function initOptionTooltips() {
+  let tip = document.getElementById('opt-tooltip');
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.id = 'opt-tooltip';
+    tip.className = 'opt-tooltip';
+    document.body.appendChild(tip);
+  }
+  document.querySelectorAll('.civ-config select[data-field]').forEach(sel => {
+    const field = sel.dataset.field;
+    const build = () => {
+      const item = FIELD_SOURCES[field][sel.value];
+      if (!item) return;
+      tip.innerHTML = `<div class="tt-title">${escapeHtml(item.name)}</div>${describeOption(field, item)}`;
+    };
+    sel.addEventListener('mouseenter', (e) => { build(); tip.classList.add('show'); positionTip(tip, e); });
+    sel.addEventListener('mousemove', (e) => positionTip(tip, e));
+    sel.addEventListener('change', build);
+    sel.addEventListener('mouseleave', () => tip.classList.remove('show'));
+    sel.addEventListener('blur', () => tip.classList.remove('show'));
+  });
+}
+
+function positionTip(tip, e) {
+  const pad = 16;
+  const w = tip.offsetWidth || 300;
+  const h = tip.offsetHeight || 160;
+  let x = e.clientX + pad, y = e.clientY + pad;
+  if (x + w > window.innerWidth - 8) x = e.clientX - w - pad;
+  if (y + h > window.innerHeight - 8) y = window.innerHeight - h - 8;
+  if (y < 8) y = 8;
+  tip.style.left = x + 'px';
+  tip.style.top = y + 'px';
+}
+
+// ============================================================
+// STATS SHEET — a modal codex comparing every option in a
+// category, switchable via a dropdown.
+// ============================================================
+function initStatsSheet() {
+  const modal = document.getElementById('sheet-modal');
+  const cat = document.getElementById('sheet-category');
+  const openBtn = document.getElementById('open-sheet');
+  const closeBtn = document.getElementById('sheet-close');
+  if (!modal || !cat || !openBtn) return;
+
+  openBtn.addEventListener('click', () => { modal.classList.add('show'); renderSheet(cat.value); });
+  closeBtn.addEventListener('click', () => modal.classList.remove('show'));
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('show'); });
+  cat.addEventListener('change', () => renderSheet(cat.value));
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') modal.classList.remove('show'); });
+}
+
+function renderSheet(cat) {
+  const el = document.getElementById('sheet-content');
+  if (!el) return;
+  let html, note;
+  if (cat === 'race')            { html = renderMatrix(RACES, true);  note = `${Object.keys(RACES).length} races — modifiers stack with focus, government and biome.`; }
+  else if (cat === 'focus')      { html = renderMatrix(FOCUSES, false); note = `${Object.keys(FOCUSES).length} focuses — your civilization's grand strategy.`; }
+  else if (cat === 'government') { html = renderMatrix(GOVERNMENTS, false); note = `${Object.keys(GOVERNMENTS).length} governments — some require specific races.`; }
+  else if (cat === 'biome')      { html = renderMatrix(BIOMES, false); note = `${Object.keys(BIOMES).length} biomes — your homeland's resource profile.`; }
+  else if (cat === 'weapon')     { html = renderWeaponSheet(); note = `${Object.keys(WEAPONS).length} special weapons — unlocked at the listed tech age.`; }
+  else if (cat === 'age')        { html = renderAgeSheet(); note = `${TECH_AGES.length} tech ages — higher ages multiply every soldier's battle power.`; }
+  el.innerHTML = `<p class="sheet-note">${note}</p>${html}`;
+  el.scrollTop = 0;
+}
+
+function divergeCell(value, dir) {
+  const pct = Math.round((value - 1) * 100);
+  if (dir === 0) return `<div class="dvcell"><span class="dv-num neu">${pct > 0 ? '+' : ''}${pct}%</span></div>`;
+  const good = pct >= 0;
+  const w = Math.min(100, Math.abs(pct));
+  const left = good ? '' : `<span class="dv-bar bad" style="width:${w}%"></span>`;
+  const right = good ? `<span class="dv-bar good" style="width:${w}%"></span>` : '';
+  return `<div class="dvcell">
+    <div class="dv"><span class="dv-half l">${left}</span><span class="dv-half r">${right}</span></div>
+    <span class="dv-num ${good ? 'good' : 'bad'}">${pct > 0 ? '+' : ''}${pct}%</span>
+  </div>`;
+}
+
+function renderMatrix(source, isRace) {
+  const present = [];
+  for (const key of Object.keys(STAT_META)) {
+    for (const item of Object.values(source)) {
+      const mods = item.mods || {};
+      if (mods[key] !== undefined || (isRace && key === 'popCapMod' && item.popCapMod !== undefined)) { present.push(key); break; }
+    }
+  }
+  let head = '<tr><th class="sticky-col">Option</th>';
+  for (const k of present) head += `<th>${escapeHtml(STAT_META[k].label)}</th>`;
+  head += '</tr>';
+
+  let body = '';
+  for (const item of Object.values(source)) {
+    const mods = Object.assign({}, item.mods);
+    if (isRace && item.popCapMod) mods.popCapMod = item.popCapMod;
+    body += `<tr><td class="sticky-col"><b>${escapeHtml(item.name)}</b><small>${escapeHtml(item.desc || '')}</small></td>`;
+    for (const k of present) {
+      if (mods[k] === undefined) { body += '<td class="dv-empty">·</td>'; continue; }
+      body += `<td>${divergeCell(mods[k], STAT_META[k].dir)}</td>`;
+    }
+    body += '</tr>';
+  }
+  return `<div class="sheet-scroll"><table class="sheet-table">${head}${body}</table></div>`;
+}
+
+function renderWeaponSheet() {
+  let rows = '';
+  for (const w of Object.values(WEAPONS)) {
+    const f = weaponPowerFactor(w);
+    const age = TECH_AGES[w.unlockAge] ? TECH_AGES[w.unlockAge].name : ('Age ' + w.unlockAge);
+    const tags = Object.keys(w.battleMod || {}).map(k => BATTLE_EFFECT_LABELS[k]).filter(Boolean)
+      .map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('');
+    const reqParts = [];
+    if (w.requires) {
+      if (w.requires.race) reqParts.push('race: ' + raceNames(w.requires.race));
+      if (w.requires.focusOr) reqParts.push('focus: ' + focusNames(w.requires.focusOr));
+      if (w.requires.focus) reqParts.push('focus: ' + focusNames(w.requires.focus));
+    }
+    const barW = Math.min(100, (f / 3.6) * 100);
+    rows += `<tr>
+      <td class="sticky-col"><b>${escapeHtml(w.name)}</b><small>${escapeHtml(w.desc)}</small></td>
+      <td>${escapeHtml(age)}</td>
+      <td><div class="hbar"><span style="width:${barW}%"></span></div><span class="dv-num good">×${f.toFixed(1)} <span class="stars">${combatStars(f)}</span></span></td>
+      <td class="tags-cell">${tags}</td>
+      <td class="req-cell">${reqParts.length ? escapeHtml(reqParts.join(' · ')) : '—'}</td>
+    </tr>`;
+  }
+  return `<div class="sheet-scroll"><table class="sheet-table weapon-table">
+    <tr><th class="sticky-col">Weapon</th><th>Unlocks</th><th>Combat power</th><th>Effects</th><th>Requires</th></tr>${rows}</table></div>`;
+}
+
+function renderAgeSheet() {
+  const maxK = TECH_AGES[TECH_AGES.length - 1].knowledgeRequired;
+  const maxM = TECH_AGES[TECH_AGES.length - 1].armyTechMult;
+  let rows = '';
+  for (const a of TECH_AGES) {
+    const kW = a.knowledgeRequired === 0 ? 2 : Math.min(100, (Math.log10(a.knowledgeRequired + 1) / Math.log10(maxK + 1)) * 100);
+    const mW = (a.armyTechMult / maxM) * 100;
+    rows += `<tr>
+      <td class="sticky-col"><b>${escapeHtml(a.name)}</b><small>${escapeHtml(a.desc || '')}</small></td>
+      <td><div class="hbar info"><span style="width:${kW}%"></span></div><span class="dv-num">${formatNum(a.knowledgeRequired)}</span></td>
+      <td><div class="hbar good"><span style="width:${mW}%"></span></div><span class="dv-num">×${a.armyTechMult.toFixed(1)}</span></td>
+    </tr>`;
+  }
+  return `<div class="sheet-scroll"><table class="sheet-table">
+    <tr><th class="sticky-col">Tech Age</th><th>Knowledge to reach (log scale)</th><th>Army tech multiplier</th></tr>${rows}</table></div>`;
 }
