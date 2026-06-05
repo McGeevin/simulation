@@ -208,14 +208,33 @@ class BattleVisualizer {
   }
 
   createUnit(side, near, civ) {
+    // Unit type reflects the civ's focus / doctrine.
+    const focusPools = {
+      military:    ['infantry','infantry','infantry','cavalry'],
+      science:     ['archer','archer','mage','infantry'],
+      faith:       ['infantry','infantry','mage','mage'],
+      magic:       ['mage','mage','mage','archer'],
+      industry:    ['infantry','infantry','cavalry','infantry'],
+      trade:       ['archer','infantry','infantry'],
+      naturalism:  ['archer','cavalry','infantry'],
+      exploration: ['cavalry','cavalry','archer','infantry'],
+      diplomacy:   ['infantry','archer'],
+    };
+    const pool = focusPools[civ.focus] || ['infantry'];
+    const type = pool[Math.floor(Math.random() * pool.length)];
+
+    // Formation offset: units keep a loose relative position within their side's band.
+    const formX = (Math.random() - 0.5) * 6;
+    const formY = (Math.random() - 0.5) * 6;
+
     return {
-      side,
-      x: near.x + (Math.random() - 0.5) * 8,
-      y: near.y + (Math.random() - 0.5) * 8,
+      side, type, formX, formY,
+      x: near.x + formX,
+      y: near.y + formY,
       color: civ.color,
       dead: false,
-      elite: civ.weapon === 'champions' && Math.random() < 0.05,
-      speed: 0.12 + Math.random() * 0.08,
+      elite: civ.weaponUnlocked && Math.random() < 0.06,
+      speed: 0.09 + Math.random() * 0.07,
     };
   }
 
@@ -243,11 +262,22 @@ class BattleVisualizer {
       t += 15;
     }
 
+    // Dust clouds trailing behind advancing troops every few frames.
+    if (this.phaseTime % 3 === 0) {
+      for (const u of this.units) {
+        if (!u.dead && Math.random() < 0.10) {
+          this.renderer.addParticle(u.x, u.y + 0.3, 'rgba(155,138,110,0.35)', 16, 0.006);
+        }
+      }
+    }
+
+    // Formation converge: units target the center offset by a shrinking spread.
+    const spread = Math.max(0.4, 2.8 - this.phaseTime / 55);
     let movingCount = 0;
     for (const u of this.units) {
       if (u.dead) continue;
-      const targetX = midX + (Math.sin((u.x + u.y) * 0.3) * 4);
-      const targetY = midY + (Math.sin((u.x - u.y) * 0.3) * 4);
+      const targetX = midX + u.formX * spread;
+      const targetY = midY + u.formY * spread;
       const dx = targetX - u.x;
       const dy = targetY - u.y;
       const d = Math.sqrt(dx * dx + dy * dy);
@@ -258,7 +288,7 @@ class BattleVisualizer {
       }
     }
 
-    if (this.phaseTime > 120 || movingCount < this.units.length * 0.3) {
+    if (this.phaseTime > 130 || movingCount < this.units.length * 0.3) {
       this.phase = 'clash';
       this.phaseTime = 0;
       this.battleLog.push({ year: this.map.endYear || 1000, text: 'The armies clash!' });
@@ -279,24 +309,60 @@ class BattleVisualizer {
   stepClash() {
     const outcome = this.outcome;
     const winnerSide = outcome.winner.side;
+    const midX = this.map.width / 2;
+    const midY = this.map.height / 2;
 
     const alive = this.units.filter(u => !u.dead);
     const bySide = {};
     for (const u of alive) (bySide[u.side] || (bySide[u.side] = [])).push(u);
 
+    // Apply casualties with multi-particle death burst.
     for (const side in bySide) {
       const list = bySide[side];
       const kills = Math.ceil(list.length * this.lossRateForSide(side));
       for (let i = 0; i < kills; i++) {
         const u = list[Math.floor(Math.random() * list.length)];
-        if (u && !u.dead) { u.dead = true; this.renderer.addParticle(u.x, u.y, '#c23b22', 25); }
+        if (u && !u.dead) {
+          u.dead = true;
+          const dc = side === winnerSide ? '#c04040' : '#e04040';
+          for (let p = 0; p < 4; p++) {
+            this.renderer.addParticle(
+              u.x + (Math.random() - 0.5) * 1.2,
+              u.y + (Math.random() - 0.5) * 1.2,
+              dc, 16 + Math.floor(Math.random() * 14)
+            );
+          }
+        }
       }
     }
 
+    // Battle-line push: winner units press toward center, losers pushed back.
+    const pushStr = outcome.threeWay ? 0.018 : 0.028;
     for (const u of this.units) {
       if (u.dead) continue;
-      u.x += (Math.random() - 0.5) * 0.15;
-      u.y += (Math.random() - 0.5) * 0.15;
+      const dx = midX - u.x, dy = midY - u.y;
+      const d = Math.sqrt(dx * dx + dy * dy) + 0.01;
+      if (u.side === winnerSide) {
+        // advance
+        u.x += (dx / d) * pushStr + (Math.random() - 0.5) * 0.16;
+        u.y += (dy / d) * pushStr + (Math.random() - 0.5) * 0.16;
+      } else {
+        // retreat a little
+        u.x -= (dx / d) * pushStr * 0.5 + (Math.random() - 0.5) * 0.18;
+        u.y -= (dy / d) * pushStr * 0.5 + (Math.random() - 0.5) * 0.18;
+      }
+    }
+
+    // Golden clash sparks at the battle front.
+    if (this.phaseTime % 3 === 0) {
+      for (let i = 0; i < 3; i++) {
+        this.renderer.addParticle(
+          midX + (Math.random() - 0.5) * 10,
+          midY + (Math.random() - 0.5) * 10,
+          Math.random() < 0.6 ? '#ffe14d' : '#ffffff',
+          8 + Math.floor(Math.random() * 8)
+        );
+      }
     }
 
     const winnerAlive = (bySide[winnerSide] || []).length;
@@ -305,6 +371,16 @@ class BattleVisualizer {
       this.phase = 'resolve';
       this.phaseTime = 0;
       this.battleLog.push({ year: this.map.endYear || 1000, text: `${outcome.winner.name} ${outcome.threeWay ? 'stands triumphant' : 'routs the enemy'}!` });
+      // Victory burst: golden + civ-colored particles
+      const winCiv = this.civs.find(c => c.side === winnerSide);
+      for (let i = 0; i < 60; i++) {
+        this.renderer.addParticle(
+          midX + (Math.random() - 0.5) * 14,
+          midY + (Math.random() - 0.5) * 14,
+          i < 30 ? (winCiv ? winCiv.color : '#4a90e2') : '#ffe14d',
+          45 + Math.floor(Math.random() * 25)
+        );
+      }
     }
   }
 
@@ -324,12 +400,16 @@ class BattleVisualizer {
     // The victors fan out and recolor the land.
     for (const u of this.units) {
       if (u.dead || u.side !== winnerSide) continue;
-      u.x += (Math.random() - 0.5) * 0.3 + 0.05;
-      u.y += (Math.random() - 0.5) * 0.2;
+      u.x += (Math.random() - 0.5) * 0.35 + 0.06;
+      u.y += (Math.random() - 0.5) * 0.22;
       const tx = Math.floor(u.x);
       const ty = Math.floor(u.y);
       if (tx >= 0 && tx < this.map.width && ty >= 0 && ty < this.map.height) {
         this.map.tiles[ty][tx].owner = winnerSide;
+      }
+      // Occasional celebration sparkle as troops march outward
+      if (Math.random() < 0.004) {
+        this.renderer.addParticle(u.x, u.y - 0.4, '#ffe14d', 28, -0.025);
       }
     }
 
@@ -349,19 +429,34 @@ class BattleVisualizer {
     this.battleLog.push({ year: this.map.endYear || 1000, text: `${civ.name} unleashes ${w.name}!` });
 
     const enemies = this.units.filter(u => u.side !== civ.side && !u.dead);
+    if (enemies.length === 0) return;
     const target = enemies[Math.floor(Math.random() * enemies.length)];
-    if (target) {
-      for (let i = 0; i < 50; i++) {
+
+    // Screen flash
+    this.renderer.flashEffect = 0.65;
+
+    // Four expanding rings of particles: white core → civ color → gold → red
+    const ringColors = ['#ffffff', civ.color, '#ffe14d', '#c04040'];
+    for (let wave = 0; wave < ringColors.length; wave++) {
+      for (let i = 0; i < 40; i++) {
+        const angle = (i / 40) * Math.PI * 2;
+        const dist = (wave + 1) * 2.6 * (0.65 + Math.random() * 0.7);
         this.renderer.addParticle(
-          target.x + (Math.random() - 0.5) * 7,
-          target.y + (Math.random() - 0.5) * 7,
-          civ.color, 45
+          target.x + Math.cos(angle) * dist,
+          target.y + Math.sin(angle) * dist,
+          ringColors[wave],
+          22 + wave * 10 + Math.floor(Math.random() * 10)
         );
       }
-      const killCount = Math.floor(enemies.length * 0.08);
-      for (let i = 0; i < killCount; i++) {
-        const victim = enemies[Math.floor(Math.random() * enemies.length)];
-        if (victim && !victim.dead) victim.dead = true;
+    }
+
+    // Kill enemies near the blast
+    const killCount = Math.floor(enemies.length * 0.16);
+    for (let i = 0; i < killCount; i++) {
+      const victim = enemies[Math.floor(Math.random() * enemies.length)];
+      if (victim && !victim.dead) {
+        victim.dead = true;
+        this.renderer.addParticle(victim.x, victim.y, '#ff6644', 22);
       }
     }
   }

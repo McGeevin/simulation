@@ -21,6 +21,7 @@ class Renderer {
     this.citizens = [];
     this.waterTiles = [];
     this.lavaTiles = [];
+    this.flashEffect = 0;
     this.terrainCanvas = document.createElement('canvas');
     this.terrainCtx = this.terrainCanvas.getContext('2d');
     this.resize();
@@ -301,6 +302,12 @@ class Renderer {
       ctx.fillRect(this.offsetX + p.x * ts - s / 2, this.offsetY + p.y * ts - s / 2, s, s);
     }
     ctx.globalAlpha = 1;
+
+    // Screen-flash effect (triggered by special weapons)
+    if (this.flashEffect > 0) {
+      ctx.fillStyle = `rgba(255,255,255,${this.flashEffect.toFixed(2)})`;
+      ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    }
   }
 
   collectSettlements(civs) {
@@ -482,13 +489,15 @@ class Renderer {
     ctx.fillStyle = dark;
     ctx.fillRect(px + 1, py + 1, ts - 2, ts - 2);
 
+    const isIndustry = civ.focus === 'industry';
+
     // Clip the building to a height that grows with `build` so it rises.
     ctx.save();
     ctx.beginPath();
     const bh = Math.max(1, Math.round((ts - 2) * build));
     ctx.rect(px, py + (ts - 1) - bh, ts, bh + 1);
     ctx.clip();
-    this.drawBuilding(ctx, px, py, ts, tier, color, light, dark);
+    this.drawBuilding(ctx, px, py, ts, tier, color, light, dark, isIndustry);
     ctx.restore();
 
     // Scaffolding while under construction
@@ -516,9 +525,18 @@ class Renderer {
     if (this.mode === 'sim' && tier >= 2 && !settlement._constructing && Math.random() < 0.01) {
       this.addParticle(x + 0.5, y, 'rgba(180,180,190,0.7)', 40, -0.04);
     }
+    // Industry civs: denser dark smoke from their chimneys
+    if (isIndustry && tier >= 1 && !settlement._constructing) {
+      if (Math.random() < 0.06) {
+        this.addParticle(x + 0.72 + (Math.random() - 0.5) * 0.06, y + 0.10, 'rgba(55,50,48,0.88)', 50, -0.055);
+      }
+      if (tier >= 3 && Math.random() < 0.04) {
+        this.addParticle(x + 0.20 + (Math.random() - 0.5) * 0.06, y + 0.15, 'rgba(65,58,52,0.75)', 44, -0.048);
+      }
+    }
   }
 
-  drawBuilding(ctx, px, py, ts, tier, color, light, dark) {
+  drawBuilding(ctx, px, py, ts, tier, color, light, dark, isIndustry = false) {
     const cx = px + ts / 2;
     ctx.fillStyle = color;
     if (tier === 0) {
@@ -558,6 +576,28 @@ class Renderer {
         ctx.fillRect(px + 3 + i * Math.floor(ts * 0.3), py + Math.floor(ts * 0.7), 1, 1);
       }
     }
+
+    // Industry civs get smokestacks drawn over the building
+    if (isIndustry && tier >= 1 && ts >= 6) {
+      const cw = Math.max(1, Math.floor(ts * 0.11));
+      const rimH = Math.max(1, Math.floor(ts * 0.09));
+      // Main chimney (right side)
+      const c1x = px + Math.floor(ts * 0.72);
+      const c1h = Math.floor(ts * (tier >= 3 ? 0.68 : 0.52));
+      ctx.fillStyle = '#2e2e2e';
+      ctx.fillRect(c1x, py + Math.floor(ts * 0.08), cw, c1h);
+      ctx.fillStyle = '#4a4a4a';
+      ctx.fillRect(c1x - 1, py + Math.floor(ts * 0.08), cw + 2, rimH);
+      // Second chimney for higher-tier factories
+      if (tier >= 3) {
+        const c2x = px + Math.floor(ts * 0.18);
+        const c2h = Math.floor(c1h * 0.82);
+        ctx.fillStyle = '#2e2e2e';
+        ctx.fillRect(c2x, py + Math.floor(ts * 0.12), cw, c2h);
+        ctx.fillStyle = '#4a4a4a';
+        ctx.fillRect(c2x - 1, py + Math.floor(ts * 0.12), cw + 2, rimH);
+      }
+    }
   }
 
   drawUnit(unit, ts) {
@@ -565,17 +605,63 @@ class Renderer {
     const ctx = this.ctx;
     const px = this.offsetX + unit.x * ts;
     const py = this.offsetY + unit.y * ts;
-    const size = Math.max(2, Math.floor(ts * 0.55));
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(px - size / 2 - 1, py - size / 2 - 1, size + 2, size + 2);
-    ctx.fillStyle = unit.color;
-    ctx.fillRect(px - size / 2, py - size / 2, size, size);
-    if (unit.elite) { ctx.fillStyle = '#ffe14d'; ctx.fillRect(px - 1, py - size / 2 - 3, 2, 2); }
+    const base = unit.elite ? Math.max(3, Math.floor(ts * 0.62)) : Math.max(2, Math.floor(ts * 0.50));
+    const type = unit.type || 'infantry';
+
+    if (type === 'cavalry') {
+      const w = Math.max(3, Math.floor(base * 1.7));
+      const h = Math.max(2, Math.floor(base * 0.65));
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(px - w / 2 - 1, py - h / 2 - 1, w + 2, h + 2);
+      ctx.fillStyle = unit.color;
+      ctx.fillRect(px - w / 2, py - h / 2, w, h);
+    } else if (type === 'archer') {
+      const r = Math.max(2, Math.floor(base * 0.55));
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(-r - 1, -r - 1, r * 2 + 2, r * 2 + 2);
+      ctx.fillStyle = unit.color;
+      ctx.fillRect(-r, -r, r * 2, r * 2);
+      ctx.restore();
+    } else if (type === 'mage') {
+      const r = Math.max(2, Math.floor(base * 0.52));
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.beginPath();
+      ctx.arc(px, py, r + 1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = unit.color;
+      ctx.beginPath();
+      ctx.arc(px, py, r, 0, Math.PI * 2);
+      ctx.fill();
+      // Faint glow ring for mages
+      if (ts >= 7) {
+        ctx.globalAlpha = 0.3;
+        ctx.beginPath();
+        ctx.arc(px, py, r + 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    } else {
+      // Infantry (default): square
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(px - base / 2 - 1, py - base / 2 - 1, base + 2, base + 2);
+      ctx.fillStyle = unit.color;
+      ctx.fillRect(px - base / 2, py - base / 2, base, base);
+    }
+
+    if (unit.elite) {
+      ctx.fillStyle = '#ffe14d';
+      const s = Math.max(1, Math.floor(base * 0.35));
+      ctx.fillRect(px - Math.floor(s / 2), py - Math.floor(base / 2) - s - 2, s, s);
+    }
   }
 
   updateParticles() {
     for (const p of this.particles) { p.x += p.vx; p.y += p.vy; p.life--; }
     this.particles = this.particles.filter(p => p.life > 0);
+    if (this.flashEffect > 0) this.flashEffect = Math.max(0, this.flashEffect - 0.07);
   }
 
   addParticle(x, y, color, life = 20, vy) {

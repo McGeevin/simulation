@@ -273,26 +273,87 @@ function buildPowerNarrative(o) {
   const upset = o.winner !== favored;
   const margin = Math.abs(o.invRoll - o.defRoll) / Math.max(o.invRoll, o.defRoll) * 100;
 
-  // biggest contributing factor for the winner (besides base)
   const wb = o.winner === o.invader ? o.invBreakdown : o.defBreakdown;
-  let top = null;
+  const lb = o.loser  === o.invader ? o.invBreakdown : o.defBreakdown;
+  let top = null, loserBottom = null;
   for (const f of wb.factors) { if (!top || f.mult > top.mult) top = f; }
+  for (const f of lb.factors) { if (f.mult < 1 && (!loserBottom || f.mult < loserBottom.mult)) loserBottom = f; }
 
   const lines = [];
-  lines.push(`<strong>${escapeHtml(o.invader.name)}</strong> was the aggressor (higher belligerence: ${o.aAgg >= o.bAgg ? o.aAgg : o.bAgg} vs ${o.aAgg >= o.bAgg ? o.bAgg : o.aAgg}) and marched on <strong>${escapeHtml(o.defender.name)}</strong>, who fought on home ground.`);
 
+  // 1. Army & tech comparison
+  const invAge = TECH_AGES[o.invader.techAge];
+  const defAge = TECH_AGES[o.defender.techAge];
+  const techGap = Math.abs(o.invader.techAge - o.defender.techAge);
+  let armyLine = `<strong>${escapeHtml(o.invader.name)}</strong> marched with ${formatNum(o.invader.army)} soldiers at the <em>${escapeHtml(invAge.name)} Age</em> (×${o.invader.weaponTechLevel.toFixed(1)} per soldier). `;
+  armyLine += `<strong>${escapeHtml(o.defender.name)}</strong> fielded ${formatNum(o.defender.army)} at the <em>${escapeHtml(defAge.name)} Age</em> (×${o.defender.weaponTechLevel.toFixed(1)}).`;
+  if (techGap >= 2) {
+    const ahead = o.invader.techAge > o.defender.techAge ? o.invader : o.defender;
+    armyLine += ` That ${techGap}-age technology gap gave <strong>${escapeHtml(ahead.name)}</strong> a decisive equipment advantage before a single blow was struck.`;
+  } else if (techGap === 1) {
+    const ahead = o.invader.techAge > o.defender.techAge ? o.invader : o.defender;
+    armyLine += ` <strong>${escapeHtml(ahead.name)}</strong> held a one-age lead in military technology.`;
+  }
+  lines.push(armyLine);
+
+  // 2. Morale & stability
+  function moraleDesc(civ) {
+    if (civ.morale >= 135) return `extraordinary morale (${Math.round(civ.morale)})`;
+    if (civ.morale >= 100) return `solid morale (${Math.round(civ.morale)})`;
+    if (civ.morale >= 70)  return `wavering morale (${Math.round(civ.morale)})`;
+    return `badly shaken morale (${Math.round(civ.morale)})`;
+  }
+  function stabDesc(civ) {
+    if (civ.stability >= 115) return `iron-fist stability (${Math.round(civ.stability)})`;
+    if (civ.stability >= 85)  return `steady governance (${Math.round(civ.stability)})`;
+    if (civ.stability >= 55)  return `shaky political order (${Math.round(civ.stability)})`;
+    return `a state on the edge of internal collapse (${Math.round(civ.stability)})`;
+  }
+  lines.push(`Going into battle, <strong>${escapeHtml(o.invader.name)}</strong> had ${moraleDesc(o.invader)} and ${stabDesc(o.invader)}. <strong>${escapeHtml(o.defender.name)}</strong> had ${moraleDesc(o.defender)} and ${stabDesc(o.defender)}.`);
+
+  // 3. Aggressor + terrain
+  let contextLine = `<strong>${escapeHtml(o.invader.name)}</strong> was the aggressor (belligerence ${o.aAgg >= o.bAgg ? o.aAgg : o.bAgg} vs ${o.aAgg >= o.bAgg ? o.bAgg : o.aAgg}), pressing into <strong>${escapeHtml(o.defender.name)}</strong>'s ${escapeHtml(BIOMES[o.defender.biome].name)} homeland.`;
+  if (o.defender.biome === 'mountain')  contextLine += ` The mountain peaks channeled the invaders into killing grounds.`;
+  else if (o.defender.biome === 'tundra') contextLine += ` The frozen wastes sapped the attacker's momentum.`;
+  else if (o.defender.biome === 'swamp') contextLine += ` Swamp chokepoints blunted the advance.`;
+  else contextLine += ` Home-ground morale and supply lines favored the defenders.`;
+  lines.push(contextLine);
+
+  // 4. Special weapons
+  const wLines = [];
+  if (o.invader.weapon && WEAPONS[o.invader.weapon]) {
+    const wn = escapeHtml(WEAPONS[o.invader.weapon].name);
+    wLines.push(o.invader.weaponUnlocked
+      ? `<strong>${escapeHtml(o.invader.name)}</strong> deployed the <em>${wn}</em>`
+      : `<strong>${escapeHtml(o.invader.name)}</strong>'s <em>${wn}</em> was still locked when battle began`);
+  }
+  if (o.defender.weapon && WEAPONS[o.defender.weapon]) {
+    const wn = escapeHtml(WEAPONS[o.defender.weapon].name);
+    wLines.push(o.defender.weaponUnlocked
+      ? `<strong>${escapeHtml(o.defender.name)}</strong> countered with the <em>${wn}</em>`
+      : `<strong>${escapeHtml(o.defender.name)}</strong>'s weapon remained locked`);
+  }
+  if (wLines.length) lines.push(wLines.join('; ') + '.');
+
+  // 5. Outcome
   if (upset) {
-    lines.push(`On paper <strong>${escapeHtml(favored.name)}</strong> held the edge (${formatNum(o.invPower)} vs ${formatNum(o.defPower)} raw power), but the fog of war — a ${margin.toFixed(0)}% swing in the rolls — handed victory to <strong style="color:${escapeHtml(o.winner.color)}">${escapeHtml(o.winner.name)}</strong>. A genuine upset.`);
+    lines.push(`On paper <strong>${escapeHtml(favored.name)}</strong> held the power edge (${formatNum(o.invPower)} vs ${formatNum(o.defPower)}), but a ${margin.toFixed(0)}% fog-of-war swing handed the day to <strong style="color:${escapeHtml(o.winner.color)}">${escapeHtml(o.winner.name)}</strong> — a genuine upset.`);
   } else if (margin < 8) {
-    lines.push(`It was razor-close: <strong style="color:${escapeHtml(o.winner.color)}">${escapeHtml(o.winner.name)}</strong> edged ahead by just ${margin.toFixed(0)}% after the dice settled.`);
+    lines.push(`It was razor-close: <strong style="color:${escapeHtml(o.winner.color)}">${escapeHtml(o.winner.name)}</strong> edged ahead by just ${margin.toFixed(0)}% once the fog of war settled.`);
   } else {
-    lines.push(`<strong style="color:${escapeHtml(o.winner.color)}">${escapeHtml(o.winner.name)}</strong> won decisively, ${margin.toFixed(0)}% ahead once the rolls landed.`);
+    lines.push(`<strong style="color:${escapeHtml(o.winner.color)}">${escapeHtml(o.winner.name)}</strong> won decisively — ${margin.toFixed(0)}% clear once the fog of war resolved.`);
   }
 
-  if (top) {
-    lines.push(`Their single greatest edge was <strong>${escapeHtml(top.label)}</strong> (×${top.mult.toFixed(2)})${top.detail ? ' — ' + escapeHtml(top.detail) : ''}.`);
+  // 6. Key factors
+  if (top && top.mult >= 1.10) {
+    lines.push(`The winner's greatest battlefield edge was <strong>${escapeHtml(top.label)}</strong> (×${top.mult.toFixed(2)})${top.detail ? ' — ' + escapeHtml(top.detail) : ''}.`);
   }
-  lines.push(`The victors lost roughly ${(o.winnerCasualtyPct * 100).toFixed(0)}% of their army; the defeated lost ${(o.loserCasualtyPct * 100).toFixed(0)}% and their nation.`);
+  if (loserBottom && loserBottom.mult < 0.90) {
+    lines.push(`The loser was most hurt by <strong>${escapeHtml(loserBottom.label)}</strong> (×${loserBottom.mult.toFixed(2)})${loserBottom.detail ? ' — ' + escapeHtml(loserBottom.detail) : ''}.`);
+  }
+
+  // 7. Casualties
+  lines.push(`The victors lost roughly <strong>${(o.winnerCasualtyPct * 100).toFixed(0)}%</strong> of their army in the campaign; the defeated lost <strong>${(o.loserCasualtyPct * 100).toFixed(0)}%</strong> and their entire civilization.`);
 
   return lines.map(l => `<p>${l}</p>`).join('');
 }
@@ -300,26 +361,54 @@ function buildPowerNarrative(o) {
 function buildPowerNarrative3(o) {
   const w = o.entries[0], second = o.entries[1], third = o.entries[2];
   const byPower = [...o.entries].sort((a, b) => b.power - a.power);
-  const favored = byPower[0];
-  const upset = favored.civ !== o.winner;
+  const upset = byPower[0].civ !== o.winner;
   const margin = (w.roll - second.roll) / Math.max(1, w.roll) * 100;
 
   let top = null;
   for (const f of w.breakdown.factors) { if (!top || f.mult > top.mult) top = f; }
 
   const lines = [];
-  lines.push(`A three-way war decided the fate of the world. On raw power the order was <strong>${escapeHtml(byPower[0].civ.name)}</strong> (${formatNum(byPower[0].power)}), <strong>${escapeHtml(byPower[1].civ.name)}</strong> (${formatNum(byPower[1].power)}), then <strong>${escapeHtml(byPower[2].civ.name)}</strong> (${formatNum(byPower[2].power)}).`);
+
+  // 1. Armies & tech for all three
+  const techSummary = o.entries.map(e => {
+    const age = TECH_AGES[e.civ.techAge];
+    return `<strong style="color:${escapeHtml(e.civ.color)}">${escapeHtml(e.civ.name)}</strong>: ${formatNum(e.civ.army)} troops at <em>${escapeHtml(age.name)} Age</em> (×${e.civ.weaponTechLevel.toFixed(1)})`;
+  }).join(' · ');
+  lines.push(`Armies on the field — ${techSummary}.`);
+
+  // 2. Tech lead if significant
+  const techOrder = [...o.entries].sort((a, b) => b.civ.techAge - a.civ.techAge);
+  if (techOrder[0].civ.techAge > techOrder[2].civ.techAge) {
+    const gap = techOrder[0].civ.techAge - techOrder[2].civ.techAge;
+    lines.push(`<strong>${escapeHtml(techOrder[0].civ.name)}</strong> held the largest technological edge — ${gap} age${gap > 1 ? 's' : ''} ahead of <strong>${escapeHtml(techOrder[2].civ.name)}</strong> — meaning each of their soldiers fought with significantly superior equipment.`);
+  }
+
+  // 3. Morale & stability snapshot
+  const stateSnap = o.entries.map(e => {
+    const m = Math.round(e.civ.morale), s = Math.round(e.civ.stability);
+    return `<strong>${escapeHtml(e.civ.name)}</strong>: morale ${m}, stability ${s}`;
+  }).join('; ');
+  lines.push(`State of nations going into battle — ${stateSnap}.`);
+
+  // 4. Power order and outcome
+  lines.push(`A three-way war decided the fate of the world. On raw computed power: <strong>${escapeHtml(byPower[0].civ.name)}</strong> (${formatNum(byPower[0].power)}), <strong>${escapeHtml(byPower[1].civ.name)}</strong> (${formatNum(byPower[1].power)}), then <strong>${escapeHtml(byPower[2].civ.name)}</strong> (${formatNum(byPower[2].power)}).`);
+
   if (upset) {
-    lines.push(`The fog of war upset the odds: <strong style="color:${escapeHtml(o.winner.color)}">${escapeHtml(o.winner.name)}</strong> seized victory without holding the strongest army on paper.`);
+    lines.push(`The fog of war overturned the expected result: <strong style="color:${escapeHtml(o.winner.color)}">${escapeHtml(o.winner.name)}</strong> seized victory without holding the strongest army on paper.`);
   } else if (margin < 8) {
-    lines.push(`<strong style="color:${escapeHtml(o.winner.color)}">${escapeHtml(o.winner.name)}</strong> prevailed, but only just — a ${margin.toFixed(0)}% edge over <strong>${escapeHtml(second.civ.name)}</strong> once the dice settled.`);
+    lines.push(`<strong style="color:${escapeHtml(o.winner.color)}">${escapeHtml(o.winner.name)}</strong> prevailed by the slimmest of margins — just ${margin.toFixed(0)}% over <strong>${escapeHtml(second.civ.name)}</strong> once the fog of war resolved.`);
   } else {
-    lines.push(`<strong style="color:${escapeHtml(o.winner.color)}">${escapeHtml(o.winner.name)}</strong> won decisively, ${margin.toFixed(0)}% clear of <strong>${escapeHtml(second.civ.name)}</strong> after the rolls landed.`);
+    lines.push(`<strong style="color:${escapeHtml(o.winner.color)}">${escapeHtml(o.winner.name)}</strong> won decisively, ${margin.toFixed(0)}% clear of <strong>${escapeHtml(second.civ.name)}</strong> after the dice settled.`);
   }
-  if (top) {
-    lines.push(`Their single greatest edge was <strong>${escapeHtml(top.label)}</strong> (×${top.mult.toFixed(2)})${top.detail ? ' — ' + escapeHtml(top.detail) : ''}.`);
+
+  // 5. Winner's top factor
+  if (top && top.mult >= 1.10) {
+    lines.push(`The victor's greatest battlefield edge was <strong>${escapeHtml(top.label)}</strong> (×${top.mult.toFixed(2)})${top.detail ? ' — ' + escapeHtml(top.detail) : ''}.`);
   }
-  lines.push(`<strong>${escapeHtml(third.civ.name)}</strong> fell first, losing ${(third.casualtyPct * 100).toFixed(0)}% of their army; the victors lost roughly ${(w.casualtyPct * 100).toFixed(0)}%.`);
+
+  // 6. Who fell when + casualties
+  lines.push(`<strong>${escapeHtml(third.civ.name)}</strong> fell first, losing ${(third.casualtyPct * 100).toFixed(0)}% of their forces; <strong>${escapeHtml(second.civ.name)}</strong> followed, losing ${(second.casualtyPct * 100).toFixed(0)}%. The victors lost roughly ${(w.casualtyPct * 100).toFixed(0)}%.`);
+
   return lines.map(l => `<p>${l}</p>`).join('');
 }
 

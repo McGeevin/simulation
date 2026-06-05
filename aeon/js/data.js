@@ -125,11 +125,11 @@ const RACES = {
   },
   insectoids: {
     name: 'Insectoids',
-    desc: 'A chitinous swarm. Countless, expendable, ever-growing.',
-    flavor: 'A single sprawling brood-mind in a million bodies. Insectoids drown the map in numbers, trading the individual for the inexhaustible whole.',
-    mods: { research: 0.85, growth: 1.40, military: 1.05, defense: 1.10 },
+    desc: 'A chitinous swarm. Numerous and tenacious — but no longer unstoppable.',
+    flavor: 'A single sprawling brood-mind in a million bodies. Insectoids grow steadily and hold ground well, but a rival with strong research or military focus can match their numbers. The swarm adapts; it does not overwhelm.',
+    mods: { research: 0.85, growth: 1.20, military: 1.05, defense: 1.20 },
     biomePref: ['jungle','swamp','desert','badlands'],
-    popCapMod: 1.45,
+    popCapMod: 1.20,
   },
 };
 

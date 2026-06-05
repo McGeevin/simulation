@@ -720,3 +720,116 @@ select:focus, input:focus {
   .sheet-head { flex-wrap: wrap; gap: 10px; }
   .sheet-head h2 { font-size: 18px; letter-spacing: 3px; }
 }
+
+/* ============================================================
+   MOBILE — SIM SCREEN  (<= 768px)
+   Panels collapse into compact side-by-side strips above the map.
+   ============================================================ */
+@media (max-width: 768px) {
+  /* Header: wrap to two rows if needed */
+  .sim-header {
+    flex-wrap: wrap;
+    height: auto;
+    padding: 6px 10px;
+    gap: 4px;
+  }
+  .header-left  { order: 1; flex: 0 0 auto; }
+  .header-right { order: 2; flex: 0 0 auto; margin-left: auto; }
+  .header-center { order: 3; width: 100%; flex: 1 0 100%; }
+
+  .year-display { font-size: 16px; margin-bottom: 4px; }
+  .speed-controls { gap: 4px; flex-wrap: wrap; justify-content: center; }
+  .speed-btn, #skip-to-battle {
+    padding: 9px 11px;
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 12px;
+  }
+  #back-to-setup { padding: 9px 12px; min-height: 44px; }
+
+  /* Body: panels side-by-side on top, map below */
+  .sim-body { flex-wrap: wrap; }
+
+  .civ-panel {
+    width: 50% !important;
+    flex: 0 0 50%;
+    height: 78px;
+    overflow: hidden;
+    border-right: none !important;
+    border-left: none !important;
+    border-bottom: 1px solid var(--border);
+    flex-direction: row;
+  }
+  .sim-body.three .civ-panel {
+    width: 33.33% !important;
+    flex: 0 0 33.33%;
+  }
+
+  /* Panel A gets right border; B gets left border; C gets left border */
+  #panel-A { border-right: 1px solid var(--border) !important; }
+  #panel-B { border-left: 1px solid var(--border) !important; }
+  #panel-C { border-left: 1px solid var(--border) !important; }
+
+  .civ-header {
+    flex: 0 0 110px;
+    padding: 6px 8px;
+    border-bottom: none;
+    border-right: 1px solid var(--border);
+  }
+  .civ-name { font-size: 13px; }
+  .civ-subtitle { display: none; }
+
+  .stat-block {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 4px 8px;
+    border-bottom: none;
+  }
+  .stat { padding: 1px 0; font-size: 11px; }
+  /* Hide stats beyond the first three (pop, army, territory) */
+  .stat-block .stat:nth-child(n+4) { display: none; }
+  .stat-divider { border-top: none !important; margin-top: 0; padding-top: 0; }
+
+  .bar-block  { display: none; }
+  .events-log { display: none; }
+
+  /* Map fills its own row */
+  .map-container { width: 100%; flex: 0 0 100%; order: 4; min-height: 200px; }
+
+  /* Slim timeline on mobile */
+  .timeline-footer { height: 38px; }
+}
+
+/* Very small phones: hide panels entirely, rely on the map legend only */
+@media (max-width: 480px) {
+  .civ-panel { display: none !important; }
+  .map-legend { font-size: 11px; padding: 6px 8px; }
+  .timeline-footer { height: 30px; }
+}
+
+/* ============================================================
+   MOBILE — SETUP SCREEN  (<= 600px)
+   ============================================================ */
+@media (max-width: 600px) {
+  #setup-screen { padding: 16px 12px 28px; }
+  .setup-header h1 { font-size: 48px; letter-spacing: 8px; }
+  .tagline { font-size: 12px; letter-spacing: 2px; }
+  #start-btn { padding: 14px 36px; font-size: 16px; letter-spacing: 3px; }
+  .secondary-btn { padding: 12px 20px; font-size: 13px; }
+  .setup-footer { gap: 10px; }
+}
+
+/* ============================================================
+   MOBILE — AFTERMATH  (<= 600px)
+   ============================================================ */
+@media (max-width: 600px) {
+  #aftermath-screen { padding: 24px 12px; }
+  .aftermath-content { max-width: 100%; }
+  #winner-title { font-size: 36px; letter-spacing: 4px; }
+  .power-explainer { padding: 14px 14px; }
+  .pb-title { font-size: 16px; }
+  .pb-narrative { font-size: 13px; }
+  #new-game-btn { padding: 12px 32px; font-size: 14px; letter-spacing: 3px; }
+}
