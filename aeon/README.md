@@ -1,6 +1,6 @@
 # AEON — 1v1 Civilization Simulator
 
-A 1000-year, two-civilization sandbox simulator. Pick race, focus, weapon, government, and biome for each side, press play, and watch civilizations rise (or collapse) on a split-biome map. At Year 1000 they fight a final battle for the world.
+A two-civilization sandbox simulator spanning anywhere from 500 to 10,000 years. Pick race, focus, weapon, government, and biome for each side, choose how long history runs, press play, and watch civilizations rise (or collapse) on a split-biome map. At the end of the run they fight a final battle for the world — and the aftermath screen shows exactly how that battle's power was calculated, factor by factor.
 
 ## Running
 
@@ -42,12 +42,12 @@ aeon/
 ## What's Implemented
 
 **Phase 1 (Core)**
-- Full setup screen with all 8 races, 7 focuses, 8 weapons, 5 governments, 8 biomes
-- World settings: map size, disaster frequency, starting tech, interaction mode, seed
-- Split-biome map generation with wavy contested borders
+- Full setup screen with 12 races, 9 focuses, 13 weapons, 8 governments, 11 biomes — each with lore-rich descriptions and live **stat lines** (colour-coded modifier breakdowns; weapons also show unlock age, a combat-power rating with stars, effect tags, and requirements)
+- World settings: **simulation length (500–10,000 years)**, map size (up to 150×96), disaster frequency, starting tech, interaction mode, seed
+- Split-biome map generation with wavy contested borders, winding rivers, and per-biome terrain detail
 - Yearly tick simulation: population, food, metal, wood, gold, knowledge, faith, magic
-- Tech age progression (Stone → Modern)
-- Time controls: pause / 1x / 10x / 100x / MAX, plus Skip-to-Y1000
+- Tech age progression across 12 ages (Stone → … → Modern → Atomic → Information → Stellar → Singularity → Transcendent)
+- Time controls: pause / 1x / 10x / 100x / MAX, plus Skip-to-End
 
 **Phase 2 (Depth)**
 - Tech tree with 7 ages, focus-weighted progression
@@ -65,7 +65,14 @@ aeon/
 - Special weapons trigger as mid-battle cinematic moments (particle bursts)
 - Casualty rates reflect the resolved outcome
 - Winner sweeps the map (territory recolor)
-- Aftermath screen with full battle log, final stats, both civs side-by-side
+- Aftermath screen with a full **power breakdown**: every multiplier (tech-age arms, doctrine, morale, stability, terrain, fortification, special weapon, fog-of-war roll) is itemised for both sides, alongside a plain-language narrative explaining why the winner won, the visual battle log, and final stats
+
+**Phase 4 (Graphics + UI)**
+- Baked offscreen terrain layer (rivers, trees, hills, ice, dunes, vines, resource nodes) with only dynamic layers redrawn per frame — richer visuals *and* faster long runs
+- Crisp territory borders, glowing capitals with banners, settlement tiers from tent to windowed metropolis
+- Map legend, vignette, animated water, and a timeline that auto-scales to the run length
+- Display/UI/mono font system, refined palette with gradients and glows, morale/stability bars, custom scrollbars
+- Incremental owned-tile caching keeps even a 10,000-year run on the huge map under ~2 seconds when skipped to the end
 
 ## Customization Pointers
 

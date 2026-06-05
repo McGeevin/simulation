@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AEON — 1v1 Civilization Simulator</title>
+  <title>AEON — Civilization Simulator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -11,7 +14,7 @@
   <div id="setup-screen" class="screen active">
     <header class="setup-header">
       <h1>AEON</h1>
-      <p class="tagline">1v1 — 1000 Year Civilization Simulator</p>
+      <p class="tagline">Two civilizations. One world. A thousand years — or ten.</p>
     </header>
 
     <div class="setup-grid">
@@ -45,11 +48,21 @@
       <!-- World Settings (middle column) -->
       <div class="world-config">
         <h2>WORLD</h2>
+        <label>Simulation Length
+          <select id="world-length">
+            <option value="500">500 Years (quick)</option>
+            <option value="1000" selected>1,000 Years (classic)</option>
+            <option value="2000">2,000 Years (epoch)</option>
+            <option value="5000">5,000 Years (saga)</option>
+            <option value="10000">10,000 Years (deep time)</option>
+          </select>
+        </label>
         <label>Map Size
           <select id="world-mapsize">
-            <option value="small">Small (60x40)</option>
-            <option value="medium" selected>Medium (90x60)</option>
-            <option value="large">Large (120x80)</option>
+            <option value="small">Small (60×40)</option>
+            <option value="medium" selected>Medium (90×60)</option>
+            <option value="large">Large (120×80)</option>
+            <option value="huge">Huge (150×96)</option>
           </select>
         </label>
         <label>Disaster Frequency
@@ -70,7 +83,7 @@
         </label>
         <label>Interaction
           <select id="world-interaction">
-            <option value="isolated">Isolated until Y700</option>
+            <option value="isolated">Isolated (meet late)</option>
             <option value="contested" selected>Contested border</option>
             <option value="open">Open map</option>
           </select>
@@ -78,11 +91,11 @@
         <label>Seed
           <div class="seed-row">
             <input type="number" id="world-seed" value="12345">
-            <button type="button" id="randomize-seed">🎲</button>
+            <button type="button" id="randomize-seed" title="Randomize">🎲</button>
           </div>
         </label>
         <div class="world-info">
-          <p>Same seed + same setup = identical outcome.</p>
+          <p>Same seed + same setup = identical outcome. Longer runs unlock the full tech tree, all the way to the Transcendent Age.</p>
         </div>
       </div>
 
@@ -126,18 +139,18 @@
         <button id="back-to-setup">⬅ Setup</button>
       </div>
       <div class="header-center">
-        <div class="year-display">Year <span id="year">0</span> / 1000</div>
+        <div class="year-display">Year <span id="year">0</span> <span class="year-sep">/</span> <span id="max-year">1000</span></div>
         <div class="speed-controls">
-          <button data-speed="0" class="speed-btn">II</button>
-          <button data-speed="1" class="speed-btn active">1x</button>
-          <button data-speed="10" class="speed-btn">10x</button>
-          <button data-speed="100" class="speed-btn">100x</button>
+          <button data-speed="0" class="speed-btn" title="Pause">❚❚</button>
+          <button data-speed="1" class="speed-btn active">1×</button>
+          <button data-speed="10" class="speed-btn">10×</button>
+          <button data-speed="100" class="speed-btn">100×</button>
           <button data-speed="1000" class="speed-btn">MAX</button>
-          <button id="skip-to-battle">Skip to Y1000</button>
+          <button id="skip-to-battle">⏭ Skip to End</button>
         </div>
       </div>
       <div class="header-right">
-        <div class="seed-display">Seed: <span id="seed-display">—</span></div>
+        <div class="seed-display">SEED <span id="seed-display">—</span></div>
       </div>
     </header>
 
@@ -151,15 +164,22 @@
         <div class="stat-block">
           <div class="stat"><span>Population</span><span id="A-pop">0</span></div>
           <div class="stat"><span>Army</span><span id="A-army">0</span></div>
-          <div class="stat"><span>Tech Age</span><span id="A-age">Stone</span></div>
-          <div class="stat"><span>Food</span><span id="A-food">0</span></div>
+          <div class="stat"><span>Territory</span><span id="A-territory">0</span></div>
+          <div class="stat stat-divider"><span>Food</span><span id="A-food">0</span></div>
           <div class="stat"><span>Metal</span><span id="A-metal">0</span></div>
+          <div class="stat"><span>Wood</span><span id="A-wood">0</span></div>
           <div class="stat"><span>Gold</span><span id="A-gold">0</span></div>
           <div class="stat"><span>Knowledge</span><span id="A-knowledge">0</span></div>
           <div class="stat"><span>Faith</span><span id="A-faith">0</span></div>
           <div class="stat"><span>Magic</span><span id="A-magic">0</span></div>
-          <div class="stat"><span>Morale</span><span id="A-morale">100</span></div>
-          <div class="stat"><span>Stability</span><span id="A-stability">100</span></div>
+          <div class="stat stat-divider"><span>Tech Age</span><span id="A-age">Stone</span></div>
+          <div class="stat"><span>Weapon</span><span id="A-weapon" class="wstat locked">—</span></div>
+        </div>
+        <div class="bar-block">
+          <div class="bar-row"><span>Morale</span><span id="A-morale">100</span></div>
+          <div class="bar-track"><div class="bar-fill" id="A-morale-bar"></div></div>
+          <div class="bar-row"><span>Stability</span><span id="A-stability">100</span></div>
+          <div class="bar-track"><div class="bar-fill" id="A-stability-bar"></div></div>
         </div>
         <div class="events-log" id="events-A"></div>
       </aside>
@@ -167,6 +187,8 @@
       <!-- Map -->
       <main class="map-container">
         <canvas id="map-canvas"></canvas>
+        <div class="map-vignette"></div>
+        <div class="map-legend" id="map-legend"></div>
         <div class="map-overlay" id="map-overlay"></div>
       </main>
 
@@ -179,15 +201,22 @@
         <div class="stat-block">
           <div class="stat"><span>Population</span><span id="B-pop">0</span></div>
           <div class="stat"><span>Army</span><span id="B-army">0</span></div>
-          <div class="stat"><span>Tech Age</span><span id="B-age">Stone</span></div>
-          <div class="stat"><span>Food</span><span id="B-food">0</span></div>
+          <div class="stat"><span>Territory</span><span id="B-territory">0</span></div>
+          <div class="stat stat-divider"><span>Food</span><span id="B-food">0</span></div>
           <div class="stat"><span>Metal</span><span id="B-metal">0</span></div>
+          <div class="stat"><span>Wood</span><span id="B-wood">0</span></div>
           <div class="stat"><span>Gold</span><span id="B-gold">0</span></div>
           <div class="stat"><span>Knowledge</span><span id="B-knowledge">0</span></div>
           <div class="stat"><span>Faith</span><span id="B-faith">0</span></div>
           <div class="stat"><span>Magic</span><span id="B-magic">0</span></div>
-          <div class="stat"><span>Morale</span><span id="B-morale">100</span></div>
-          <div class="stat"><span>Stability</span><span id="B-stability">100</span></div>
+          <div class="stat stat-divider"><span>Tech Age</span><span id="B-age">Stone</span></div>
+          <div class="stat"><span>Weapon</span><span id="B-weapon" class="wstat locked">—</span></div>
+        </div>
+        <div class="bar-block">
+          <div class="bar-row"><span>Morale</span><span id="B-morale">100</span></div>
+          <div class="bar-track"><div class="bar-fill" id="B-morale-bar"></div></div>
+          <div class="bar-row"><span>Stability</span><span id="B-stability">100</span></div>
+          <div class="bar-track"><div class="bar-fill" id="B-stability-bar"></div></div>
         </div>
         <div class="events-log" id="events-B"></div>
       </aside>
@@ -204,7 +233,14 @@
     <div class="aftermath-content">
       <h1 id="winner-title">VICTORY</h1>
       <div id="winner-subtitle"></div>
-      <div class="battle-summary" id="battle-summary"></div>
+
+      <div class="power-explainer" id="power-explainer"></div>
+
+      <details class="battle-log-wrap" open>
+        <summary>Battle log</summary>
+        <div class="battle-summary" id="battle-summary"></div>
+      </details>
+
       <div class="final-stats" id="final-stats"></div>
       <button id="new-game-btn">NEW SIMULATION</button>
     </div>

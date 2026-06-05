@@ -212,8 +212,9 @@ function tickYear(civ, year, world, map, otherCiv, log) {
         log(civ.side, year, `First contact with ${otherCiv.name}.`, 'major');
       }
     }
-    if (!civ.inContact && world.interaction === 'isolated' && year >= 700 && otherCiv && !otherCiv.inContact) {
-      // Force contact at year 700
+    const contactYear = Math.floor((world.maxYear || 1000) * 0.7);
+    if (!civ.inContact && world.interaction === 'isolated' && year >= contactYear && otherCiv && !otherCiv.inContact) {
+      // Force contact at 70% of the run so the final battle is never a stranger.
       civ.inContact = true;
       otherCiv.inContact = true;
       log(civ.side, year, `Scouts report a foreign civilization.`, 'major');

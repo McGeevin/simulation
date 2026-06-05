@@ -12,6 +12,7 @@ const Game = {
   renderer: null,
   timeline: null,
   year: 0,
+  maxYear: 1000,
   speed: 1,
   running: false,
   yearAccumulator: 0,
@@ -21,9 +22,6 @@ const Game = {
   phase: 'setup',  // setup | sim | battle | done
 };
 
-// ============================================================
-// INIT
-// ============================================================
 function init() {
   populateSelects();
 
@@ -55,27 +53,25 @@ function init() {
   });
 }
 
-// ============================================================
-// START SIMULATION
-// ============================================================
 function startSim() {
   const config = readConfig();
   Game.config = config;
 
-  // Validate weapon requirements
   if (!validateConfig(config.A) || !validateConfig(config.B)) return;
 
   Game.rng = new RNG(config.world.seed);
   const size = MAP_SIZES[config.world.mapSize];
+  Game.maxYear = config.world.maxYear;
 
-  // Build world settings
   const world = {
     disasterChance: config.world.disasterChance,
     startingTech: config.world.startingTech,
     interaction: config.world.interaction,
+    maxYear: config.world.maxYear,
   };
 
   Game.map = generateMap(size.w, size.h, config.A.biome, config.B.biome, Game.rng);
+  Game.map.endYear = Game.maxYear;
 
   Game.civA = createCiv(config.A, 'A', world, Game.rng);
   Game.civB = createCiv(config.B, 'B', world, Game.rng);
@@ -89,27 +85,24 @@ function startSim() {
   Game.battleOutcome = null;
   Game.yearAccumulator = 0;
 
-  // Clear event logs
   document.getElementById('events-A').innerHTML = '';
   document.getElementById('events-B').innerHTML = '';
-
   document.getElementById('seed-display').textContent = config.world.seed;
+  document.getElementById('max-year').textContent = Game.maxYear;
+  document.getElementById('skip-to-battle').textContent = `⏭ Skip to Y${Game.maxYear}`;
 
   showScreen('sim-screen');
 
-  // Wait a tick for layout, then init canvases
   requestAnimationFrame(() => {
-    const mapCanvas = document.getElementById('map-canvas');
-    Game.renderer = new Renderer(mapCanvas, Game.map);
-
-    const timelineCanvas = document.getElementById('timeline-canvas');
-    Game.timeline = new TimelineRenderer(timelineCanvas);
+    Game.renderer = new Renderer(document.getElementById('map-canvas'), Game.map);
+    Game.timeline = new TimelineRenderer(document.getElementById('timeline-canvas'), Game.maxYear);
 
     document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
     document.querySelector('.speed-btn[data-speed="1"]').classList.add('active');
 
     updatePanel(Game.civA);
     updatePanel(Game.civB);
+    renderLegend(Game.civA, Game.civB);
 
     Game.lastFrameTime = performance.now();
     requestAnimationFrame(gameLoop);
@@ -123,11 +116,11 @@ function validateConfig(side) {
   const gov = GOVERNMENTS[side.government];
 
   if (focus.requires && !focus.requires.includes(side.race)) {
-    alert(`${focus.name} focus requires one of: ${focus.requires.join(', ')}`);
+    alert(`${focus.name} focus requires one of: ${focus.requires.map(r => RACES[r].name).join(', ')}`);
     return false;
   }
   if (gov.requires && gov.requires.race && !gov.requires.race.includes(side.race)) {
-    alert(`${gov.name} government requires one of: ${gov.requires.race.join(', ')}`);
+    alert(`${gov.name} government requires one of: ${gov.requires.race.map(r => RACES[r].name).join(', ')}`);
     return false;
   }
   if (weapon.requires) {
@@ -135,8 +128,12 @@ function validateConfig(side) {
       alert(`${weapon.name} requires focus: ${weapon.requires.focus.join(' or ')}`);
       return false;
     }
+    if (weapon.requires.focusOr && !weapon.requires.focusOr.includes(side.focus)) {
+      alert(`${weapon.name} requires focus: ${weapon.requires.focusOr.map(f => FOCUSES[f].name).join(' or ')}`);
+      return false;
+    }
     if (weapon.requires.race && !weapon.requires.race.includes(side.race)) {
-      alert(`${weapon.name} requires race: ${weapon.requires.race.join(' or ')}`);
+      alert(`${weapon.name} requires race: ${weapon.requires.race.map(r => RACES[r].name).join(' or ')}`);
       return false;
     }
   }
@@ -151,61 +148,52 @@ function backToSetup() {
 
 function skipToBattle() {
   if (Game.phase !== 'sim') return;
-  // Fast-forward to year 1000
-  const log = (side, year, text, tag) => {
-    logEvent(side, year, text, tag);
-    Game.timeline.addEvent(year, tag, side);
-  };
-  while (Game.year < 1000) {
-    Game.year++;
-    tickYear(Game.civA, Game.year, Game.world, Game.map, Game.civB, log);
-    tickYear(Game.civB, Game.year, Game.world, Game.map, Game.civA, log);
-  }
-  updatePanel(Game.civA);
-  updatePanel(Game.civB);
-  startBattle();
+
+  const overlay = document.getElementById('map-overlay');
+  overlay.textContent = 'SIMULATING…';
+  overlay.classList.add('show');
+
+  // Defer so the overlay paints before the (possibly long) synchronous run.
+  setTimeout(() => {
+    const log = (side, year, text, tag) => {
+      logEvent(side, year, text, tag);
+      Game.timeline.addEvent(year, tag, side);
+    };
+    while (Game.year < Game.maxYear) {
+      Game.year++;
+      tickYear(Game.civA, Game.year, Game.world, Game.map, Game.civB, log);
+      tickYear(Game.civB, Game.year, Game.world, Game.map, Game.civA, log);
+    }
+    updatePanel(Game.civA);
+    updatePanel(Game.civB);
+    startBattle();
+  }, 40);
 }
 
-// ============================================================
-// GAME LOOP
-// ============================================================
 function gameLoop(timestamp) {
   const dt = timestamp - Game.lastFrameTime;
   Game.lastFrameTime = timestamp;
 
-  if (Game.phase === 'sim') {
-    simStep(dt);
-  } else if (Game.phase === 'battle') {
-    battleStep();
-  }
+  if (Game.phase === 'sim') simStep(dt);
+  else if (Game.phase === 'battle') battleStep();
 
-  // Render
   if (Game.renderer && (Game.phase === 'sim' || Game.phase === 'battle')) {
     Game.renderer.render(Game.civA, Game.civB, Game.year);
     document.getElementById('year').textContent = Game.year;
   }
-  if (Game.timeline && Game.phase === 'sim') {
-    Game.timeline.render(Game.year);
-  }
+  if (Game.timeline && Game.phase === 'sim') Game.timeline.render(Game.year);
 
-  if (Game.phase !== 'done') {
-    requestAnimationFrame(gameLoop);
-  }
+  if (Game.phase !== 'done') requestAnimationFrame(gameLoop);
 }
 
 function simStep(dt) {
   if (!Game.running) return;
-  if (Game.year >= 1000) {
-    startBattle();
-    return;
-  }
+  if (Game.year >= Game.maxYear) { startBattle(); return; }
 
-  // years per second based on speed
-  // speed 1 = 1 year/sec, 10 = 10/sec, etc.
   Game.yearAccumulator += (dt / 1000) * Game.speed;
 
   let stepsThisFrame = 0;
-  const maxSteps = Game.speed >= 1000 ? 50 : (Game.speed >= 100 ? 20 : 5);
+  const maxSteps = Game.speed >= 1000 ? 60 : (Game.speed >= 100 ? 20 : 5);
 
   while (Game.yearAccumulator >= 1 && stepsThisFrame < maxSteps) {
     Game.yearAccumulator -= 1;
@@ -220,13 +208,9 @@ function simStep(dt) {
     tickYear(Game.civA, Game.year, Game.world, Game.map, Game.civB, log);
     tickYear(Game.civB, Game.year, Game.world, Game.map, Game.civA, log);
 
-    if (Game.year >= 1000) {
-      startBattle();
-      return;
-    }
+    if (Game.year >= Game.maxYear) { startBattle(); return; }
   }
 
-  // Update panels every frame (cheap)
   updatePanel(Game.civA);
   updatePanel(Game.civB);
 }
@@ -239,24 +223,19 @@ function startBattle() {
   Game.phase = 'battle';
   Game.running = true;
 
-  // Resolve outcome
   Game.battleOutcome = resolveBattle(Game.civA, Game.civB, Game.world, Game.rng);
 
-  // Show overlay
   const overlay = document.getElementById('map-overlay');
-  overlay.textContent = `FINAL BATTLE — Y1000`;
+  overlay.textContent = `FINAL BATTLE — Y${Game.maxYear}`;
   overlay.classList.add('show');
 
-  // Init visualizer
   Game.battle = new BattleVisualizer(Game.renderer, Game.map, Game.civA, Game.civB, Game.battleOutcome);
   Game.battle.start();
 }
 
 function battleStep() {
   Game.battle.step();
-  if (Game.battle.isDone()) {
-    finishGame();
-  }
+  if (Game.battle.isDone()) finishGame();
 }
 
 // ============================================================
@@ -271,56 +250,49 @@ function finishGame() {
   const winner = outcome.winner;
   const loser = outcome.loser;
 
-  // Apply casualties to civs
   winner.army = Math.max(0, Math.floor(winner.army * (1 - outcome.winnerCasualtyPct)));
-  loser.army  = 0;
+  loser.army = 0;
 
-  // Show aftermath screen
   setTimeout(() => {
-    document.getElementById('winner-title').textContent = `${winner.name.toUpperCase()} VICTORIOUS`;
-    document.getElementById('winner-title').style.color = winner.color;
+    const titleEl = document.getElementById('winner-title');
+    titleEl.textContent = `${winner.name.toUpperCase()} VICTORIOUS`;
+    titleEl.style.color = winner.color;
     document.getElementById('winner-subtitle').textContent =
-      `${RACES[winner.race].name} · ${FOCUSES[winner.focus].name} · Conquered the world in Y1000`;
+      `${RACES[winner.race].name} · ${FOCUSES[winner.focus].name} · Conquered the world in Year ${Game.maxYear}`;
 
-    // Battle summary
+    // Visual battle log
     const summaryEl = document.getElementById('battle-summary');
     summaryEl.innerHTML = '';
     for (const entry of Game.battle.battleLog) {
       const div = document.createElement('div');
-      div.innerHTML = `<span class="b-year">Y${entry.year}</span>${entry.text}`;
+      div.innerHTML = `<span class="b-year">Y${entry.year}</span>${escapeHtml(entry.text)}`;
       summaryEl.appendChild(div);
     }
-    const result = document.createElement('div');
-    result.innerHTML = `<br><strong>Invader (${outcome.invader.name}):</strong> Power ${formatNum(outcome.invPower)} (rolled ${formatNum(Math.floor(outcome.invRoll))})`;
-    summaryEl.appendChild(result);
-    const result2 = document.createElement('div');
-    result2.innerHTML = `<strong>Defender (${outcome.defender.name}):</strong> Power ${formatNum(outcome.defPower)} (rolled ${formatNum(Math.floor(outcome.defRoll))})`;
-    summaryEl.appendChild(result2);
 
-    // Final stats
-    const statsEl = document.getElementById('final-stats');
-    statsEl.innerHTML = `
-      <div>
-        <h3 style="color:${Game.civA.color}">${Game.civA.name}</h3>
-        <div class="stat"><span>Population</span><span>${formatNum(Game.civA.population)}</span></div>
-        <div class="stat"><span>Army</span><span>${formatNum(Game.civA.army)}</span></div>
-        <div class="stat"><span>Tech Age</span><span>${TECH_AGES[Game.civA.techAge].name}</span></div>
-        <div class="stat"><span>Knowledge</span><span>${formatNum(Game.civA.knowledge)}</span></div>
-        <div class="stat"><span>Gold</span><span>${formatNum(Game.civA.gold)}</span></div>
-      </div>
-      <div>
-        <h3 style="color:${Game.civB.color}">${Game.civB.name}</h3>
-        <div class="stat"><span>Population</span><span>${formatNum(Game.civB.population)}</span></div>
-        <div class="stat"><span>Army</span><span>${formatNum(Game.civB.army)}</span></div>
-        <div class="stat"><span>Tech Age</span><span>${TECH_AGES[Game.civB.techAge].name}</span></div>
-        <div class="stat"><span>Knowledge</span><span>${formatNum(Game.civB.knowledge)}</span></div>
-        <div class="stat"><span>Gold</span><span>${formatNum(Game.civB.gold)}</span></div>
-      </div>
+    // Detailed power breakdown
+    renderAftermathPower(outcome);
+
+    // Final stats side-by-side
+    document.getElementById('final-stats').innerHTML = `
+      ${finalStatCard(Game.civA)}
+      ${finalStatCard(Game.civB)}
     `;
 
     showScreen('aftermath-screen');
   }, 1500);
 }
 
-// Boot
+function finalStatCard(civ) {
+  return `<div>
+    <h3 style="color:${escapeHtml(civ.color)}">${escapeHtml(civ.name)}</h3>
+    <div class="stat"><span>Race / Gov</span><span>${escapeHtml(civ.raceData.name)} · ${escapeHtml(civ.govData.name)}</span></div>
+    <div class="stat"><span>Population</span><span>${formatNum(civ.population)}</span></div>
+    <div class="stat"><span>Army</span><span>${formatNum(civ.army)}</span></div>
+    <div class="stat"><span>Tech Age</span><span>${TECH_AGES[civ.techAge].name}</span></div>
+    <div class="stat"><span>Knowledge</span><span>${formatNum(civ.knowledge)}</span></div>
+    <div class="stat"><span>Gold</span><span>${formatNum(civ.gold)}</span></div>
+    <div class="stat"><span>Territory</span><span>${formatNum(civ.territory)}</span></div>
+  </div>`;
+}
+
 document.addEventListener('DOMContentLoaded', init);
