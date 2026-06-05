@@ -1,7 +1,8 @@
 // ============================================================
 // AEON :: MAP GENERATION
-// Tile-based map. Left half = Side A biome, right half = Side B,
-// with a contested middle strip that blends both.
+// Two-player: left half = A, right half = B.
+// Three-player: left third = A, middle = B, right third = C.
+// Contested borders blend both adjacent biomes.
 // ============================================================
 
 const MAP_SIZES = {
@@ -36,17 +37,17 @@ function terrainOf(biomeKey) {
   return (b && b.terrain) || 'plains';
 }
 
-function generateMap(width, height, biomeA, biomeB, rng) {
+function generateMap(width, height, biomeA, biomeB, rng, biomeC) {
   const tiles = [];
   for (let y = 0; y < height; y++) {
     tiles[y] = [];
     for (let x = 0; x < width; x++) {
       tiles[y][x] = {
-        biome: null,        // 'A' or 'B' or 'neutral'
+        biome: null,        // 'A', 'B', 'C', or 'neutral'
         biomeKey: null,     // the biome name
         type: TILE.TERRAIN,
         elevation: 0,
-        owner: null,        // 'A', 'B', or null
+        owner: null,        // 'A', 'B', 'C', or null
         settlement: null,   // {tier, pop, owner, isCapital} or null
         feature: 0,         // visual decoration index
         river: false,       // drawn as a thin water vein
@@ -54,34 +55,47 @@ function generateMap(width, height, biomeA, biomeB, rng) {
     }
   }
 
-  // Pass 1: biome assignment with a wavy border
-  const borderWave = [];
-  for (let y = 0; y < height; y++) {
-    const wave = Math.floor(Math.sin(y * 0.3 + rng.next() * 6.28) * 3 + rng.range(-2, 2));
-    borderWave.push(Math.floor(width / 2) + wave);
-  }
+  // Pass 1: biome assignment
+  let borderWave = [];
 
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const t = tiles[y][x];
-      const border = borderWave[y];
-      if (x < border - 2) {
-        t.biome = 'A';
-        t.biomeKey = biomeA;
-      } else if (x > border + 2) {
-        t.biome = 'B';
-        t.biomeKey = biomeB;
-      } else {
-        // contested middle: mix both biomes
-        t.biome = 'neutral';
-        t.biomeKey = rng.chance(0.5) ? biomeA : biomeB;
+  if (biomeC) {
+    // Three-zone split with two wavy borders
+    const b1Wave = [], b2Wave = [];
+    for (let y = 0; y < height; y++) {
+      b1Wave.push(Math.floor(width / 3) + Math.floor(Math.sin(y * 0.3 + rng.next() * 6.28) * 3 + rng.range(-2, 2)));
+      b2Wave.push(Math.floor(width * 2 / 3) + Math.floor(Math.sin(y * 0.3 + rng.next() * 6.28) * 3 + rng.range(-2, 2)));
+    }
+    borderWave = b1Wave;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const t = tiles[y][x];
+        const b1 = b1Wave[y], b2 = b2Wave[y];
+        if (x < b1 - 2)      { t.biome = 'A'; t.biomeKey = biomeA; }
+        else if (x < b1 + 2) { t.biome = 'neutral'; t.biomeKey = rng.chance(0.5) ? biomeA : biomeB; }
+        else if (x < b2 - 2) { t.biome = 'B'; t.biomeKey = biomeB; }
+        else if (x < b2 + 2) { t.biome = 'neutral'; t.biomeKey = rng.chance(0.5) ? biomeB : biomeC; }
+        else                  { t.biome = 'C'; t.biomeKey = biomeC; }
+      }
+    }
+  } else {
+    // Two-zone split with one wavy border
+    for (let y = 0; y < height; y++) {
+      const wave = Math.floor(Math.sin(y * 0.3 + rng.next() * 6.28) * 3 + rng.range(-2, 2));
+      borderWave.push(Math.floor(width / 2) + wave);
+    }
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const t = tiles[y][x];
+        const border = borderWave[y];
+        if (x < border - 2)      { t.biome = 'A'; t.biomeKey = biomeA; }
+        else if (x > border + 2) { t.biome = 'B'; t.biomeKey = biomeB; }
+        else                     { t.biome = 'neutral'; t.biomeKey = rng.chance(0.5) ? biomeA : biomeB; }
       }
     }
   }
 
-  // Pass 2: features keyed on the biome's terrain archetype, so new
-  // biomes look right automatically. Coastal/archipelago grow a real sea
-  // along the outer edge of the map so the shoreline reads as a coast.
+  // Pass 2: features keyed on the biome's terrain archetype.
+  // Coastal/archipelago grow a real sea along the outer edge.
   const seaDepth = Math.max(2, Math.floor(width * 0.05));
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -89,7 +103,6 @@ function generateMap(width, height, biomeA, biomeB, rng) {
       const r = rng.next();
       const arch = terrainOf(t.biomeKey);
 
-      // Distance from this tile's nearest outer (non-contested) edge.
       const isLeftHalf = x < width / 2;
       const edgeDist = isLeftHalf ? x : (width - 1 - x);
       const seaLine = seaDepth + Math.round(Math.sin(y * 0.35) * 2);
@@ -98,13 +111,13 @@ function generateMap(width, height, biomeA, biomeB, rng) {
         case 'coast':
           if (edgeDist < seaLine) t.type = TILE.WATER;
           else if (edgeDist < seaLine + 1) t.feature = FEAT.BEACH;
-          else if (r < 0.10) t.type = TILE.WATER;        // inland coves
+          else if (r < 0.10) t.type = TILE.WATER;
           else if (r < 0.16) t.feature = FEAT.ROCK;
           break;
         case 'archipelago':
           if (edgeDist < seaLine || r < 0.46) t.type = TILE.WATER;
           else if (r < 0.55) t.feature = FEAT.BEACH;
-          else if (r < 0.66) t.feature = FEAT.TREE;       // palms on the isles
+          else if (r < 0.66) t.feature = FEAT.TREE;
           break;
         case 'mountain':
           if (r < 0.42) t.type = TILE.HILL;
@@ -160,7 +173,6 @@ function generateMap(width, height, biomeA, biomeB, rng) {
           break;
       }
 
-      // Small chance of a resource node on open ground
       if (r > 0.975 && t.type === TILE.TERRAIN && t.feature === FEAT.NONE) {
         t.type = TILE.RESOURCE;
       }
@@ -172,9 +184,11 @@ function generateMap(width, height, biomeA, biomeB, rng) {
   // Pass 3: a couple of meandering rivers for visual interest
   carveRivers(tiles, width, height, rng);
 
-  // Capital spawn points — find a good land tile in each half
-  const capitalA = findSpawn(tiles, width, height, 'A', rng);
-  const capitalB = findSpawn(tiles, width, height, 'B', rng);
+  // Capital spawn points
+  const has3 = !!biomeC;
+  const capitalA = findSpawn(tiles, width, height, 'A', rng, has3);
+  const capitalB = findSpawn(tiles, width, height, 'B', rng, has3);
+  const capitalC = has3 ? findSpawn(tiles, width, height, 'C', rng, true) : null;
 
   if (capitalA) {
     tiles[capitalA.y][capitalA.x].settlement = { tier: 1, pop: 5, owner: 'A', isCapital: true };
@@ -186,16 +200,20 @@ function generateMap(width, height, biomeA, biomeB, rng) {
     tiles[capitalB.y][capitalB.x].owner = 'B';
     tiles[capitalB.y][capitalB.x].type = TILE.TERRAIN;
   }
+  if (capitalC) {
+    tiles[capitalC.y][capitalC.x].settlement = { tier: 1, pop: 5, owner: 'C', isCapital: true };
+    tiles[capitalC.y][capitalC.x].owner = 'C';
+    tiles[capitalC.y][capitalC.x].type = TILE.TERRAIN;
+  }
 
   return {
     width, height, tiles,
-    capitalA, capitalB,
-    biomeA, biomeB,
+    capitalA, capitalB, capitalC,
+    biomeA, biomeB, biomeC: biomeC || null,
     borderWave,
   };
 }
 
-// Carve 1–2 winding rivers from top to bottom for visual texture.
 function carveRivers(tiles, width, height, rng) {
   const count = 1 + (rng.chance(0.6) ? 1 : 0);
   for (let i = 0; i < count; i++) {
@@ -204,16 +222,24 @@ function carveRivers(tiles, width, height, rng) {
       if (x < 1) x = 1; if (x > width - 2) x = width - 2;
       const t = tiles[y][x];
       if (!t.settlement) { t.river = true; t.feature = FEAT.NONE; }
-      // wander
       x += rng.int(-1, 1);
     }
   }
 }
 
-function findSpawn(tiles, width, height, side, rng) {
-  // Side A: spawn in left quarter. Side B: right quarter.
-  const xMin = side === 'A' ? Math.floor(width * 0.10) : Math.floor(width * 0.75);
-  const xMax = side === 'A' ? Math.floor(width * 0.25) : Math.floor(width * 0.90);
+function findSpawn(tiles, width, height, side, rng, has3) {
+  let xMin, xMax;
+  if (side === 'A') {
+    xMin = Math.floor(width * 0.10);
+    xMax = Math.floor(width * 0.25);
+  } else if (side === 'B') {
+    if (has3) { xMin = Math.floor(width * 0.37); xMax = Math.floor(width * 0.55); }
+    else      { xMin = Math.floor(width * 0.75); xMax = Math.floor(width * 0.90); }
+  } else {
+    // Side C: right third
+    xMin = Math.floor(width * 0.75);
+    xMax = Math.floor(width * 0.90);
+  }
   const yMin = Math.floor(height * 0.30);
   const yMax = Math.floor(height * 0.70);
 
@@ -262,7 +288,6 @@ function expandTerritory(map, civ, growthAmount, rng) {
   const tiles = map.tiles;
   const newOwned = [];
 
-  // Cap growth so we don't blow up the loop
   growthAmount = Math.min(growthAmount, 40);
 
   const ownedTiles = ensureOwnedCache(map, civ);
@@ -279,7 +304,7 @@ function expandTerritory(map, civ, growthAmount, rng) {
     t.owner = civ.side;
     const tile = { x: nx, y: ny };
     newOwned.push(tile);
-    ownedTiles.push(tile); // newly owned can spread next attempt / next call
+    ownedTiles.push(tile);
     if (newOwned.length >= growthAmount) break;
   }
   return newOwned;
@@ -294,7 +319,6 @@ function updateSettlements(map, civ, rng) {
   const targetSettlements = Math.min(60, Math.max(1, Math.floor(civ.population / 800)));
   const needed = targetSettlements - settlements.length;
 
-  // Add new settlements, spaced away from existing ones
   for (let i = 0; i < needed && i < 3; i++) {
     let best = null;
     let bestDist = -1;
@@ -317,7 +341,6 @@ function updateSettlements(map, civ, rng) {
     }
   }
 
-  // Upgrade settlements based on civ population & tech age
   const techAge = civ.techAge;
   for (const entry of settlements) {
     const settlement = entry.s;

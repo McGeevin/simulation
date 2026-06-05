@@ -1,6 +1,7 @@
 // ============================================================
 // AEON :: MAIN ORCHESTRATOR
 // Initialization, game loop, screen transitions.
+// Supports 1v1 (two civs) and 1v1v1 (three civs).
 // ============================================================
 
 const Game = {
@@ -9,6 +10,8 @@ const Game = {
   map: null,
   civA: null,
   civB: null,
+  civC: null,
+  civs: [],
   renderer: null,
   timeline: null,
   year: 0,
@@ -59,7 +62,9 @@ function startSim() {
   const config = readConfig();
   Game.config = config;
 
+  const players = config.world.players || 2;
   if (!validateConfig(config.A) || !validateConfig(config.B)) return;
+  if (players === 3 && !validateConfig(config.C)) return;
 
   Game.rng = new RNG(config.world.seed);
   const size = MAP_SIZES[config.world.mapSize];
@@ -70,13 +75,17 @@ function startSim() {
     startingTech: config.world.startingTech,
     interaction: config.world.interaction,
     maxYear: config.world.maxYear,
+    players,
   };
 
-  Game.map = generateMap(size.w, size.h, config.A.biome, config.B.biome, Game.rng);
+  Game.map = generateMap(size.w, size.h, config.A.biome, config.B.biome, Game.rng,
+                         players === 3 ? config.C.biome : undefined);
   Game.map.endYear = Game.maxYear;
 
   Game.civA = createCiv(config.A, 'A', world, Game.rng);
   Game.civB = createCiv(config.B, 'B', world, Game.rng);
+  Game.civC = players === 3 ? createCiv(config.C, 'C', world, Game.rng) : null;
+  Game.civs = [Game.civA, Game.civB].concat(Game.civC ? [Game.civC] : []);
   Game.world = world;
 
   Game.year = 0;
@@ -87,8 +96,15 @@ function startSim() {
   Game.battleOutcome = null;
   Game.yearAccumulator = 0;
 
-  document.getElementById('events-A').innerHTML = '';
-  document.getElementById('events-B').innerHTML = '';
+  // Reset and show the right number of side panels.
+  for (const side of ['A', 'B', 'C']) {
+    const log = document.getElementById(`events-${side}`);
+    if (log) log.innerHTML = '';
+  }
+  const panelC = document.getElementById('panel-C');
+  if (panelC) panelC.style.display = Game.civC ? '' : 'none';
+  document.querySelector('.sim-body').classList.toggle('three', !!Game.civC);
+
   document.getElementById('seed-display').textContent = config.world.seed;
   document.getElementById('max-year').textContent = Game.maxYear;
   document.getElementById('skip-to-battle').textContent = `⏭ Skip to Y${Game.maxYear}`;
@@ -102,13 +118,24 @@ function startSim() {
     document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
     document.querySelector('.speed-btn[data-speed="1"]').classList.add('active');
 
-    updatePanel(Game.civA);
-    updatePanel(Game.civB);
-    renderLegend(Game.civA, Game.civB);
+    for (const c of Game.civs) updatePanel(c);
+    renderLegend(Game.civs);
 
     Game.lastFrameTime = performance.now();
     requestAnimationFrame(gameLoop);
   });
+}
+
+// Tick every civ for one year, each seeing all the others as opponents.
+function tickAll(year, log) {
+  for (const civ of Game.civs) {
+    const others = Game.civs.filter(c => c !== civ);
+    tickYear(civ, year, Game.world, Game.map, others, log);
+  }
+}
+
+function updateAllPanels() {
+  for (const c of Game.civs) updatePanel(c);
 }
 
 function validateConfig(side) {
@@ -163,11 +190,9 @@ function skipToBattle() {
     };
     while (Game.year < Game.maxYear) {
       Game.year++;
-      tickYear(Game.civA, Game.year, Game.world, Game.map, Game.civB, log);
-      tickYear(Game.civB, Game.year, Game.world, Game.map, Game.civA, log);
+      tickAll(Game.year, log);
     }
-    updatePanel(Game.civA);
-    updatePanel(Game.civB);
+    updateAllPanels();
     startBattle();
   }, 40);
 }
@@ -180,7 +205,7 @@ function gameLoop(timestamp) {
   else if (Game.phase === 'battle') battleStep();
 
   if (Game.renderer && (Game.phase === 'sim' || Game.phase === 'battle')) {
-    Game.renderer.render(Game.civA, Game.civB, Game.year, Game.phase === 'battle' ? 'battle' : 'sim');
+    Game.renderer.render(Game.civs, Game.year, Game.phase === 'battle' ? 'battle' : 'sim');
     document.getElementById('year').textContent = Game.year;
   }
   if (Game.timeline && Game.phase === 'sim') Game.timeline.render(Game.year);
@@ -207,14 +232,12 @@ function simStep(dt) {
       if (Game.timeline) Game.timeline.addEvent(year, tag, side);
     };
 
-    tickYear(Game.civA, Game.year, Game.world, Game.map, Game.civB, log);
-    tickYear(Game.civB, Game.year, Game.world, Game.map, Game.civA, log);
+    tickAll(Game.year, log);
 
     if (Game.year >= Game.maxYear) { startBattle(); return; }
   }
 
-  updatePanel(Game.civA);
-  updatePanel(Game.civB);
+  updateAllPanels();
 }
 
 // ============================================================
@@ -225,13 +248,15 @@ function startBattle() {
   Game.phase = 'battle';
   Game.running = true;
 
-  Game.battleOutcome = resolveBattle(Game.civA, Game.civB, Game.world, Game.rng);
+  Game.battleOutcome = Game.civC
+    ? resolveBattle3(Game.civA, Game.civB, Game.civC, Game.world, Game.rng)
+    : resolveBattle(Game.civA, Game.civB, Game.world, Game.rng);
 
   const overlay = document.getElementById('map-overlay');
-  overlay.textContent = `FINAL BATTLE — Y${Game.maxYear}`;
+  overlay.textContent = `FINAL ${Game.civC ? 'THREE-WAY ' : ''}BATTLE — Y${Game.maxYear}`;
   overlay.classList.add('show');
 
-  Game.battle = new BattleVisualizer(Game.renderer, Game.map, Game.civA, Game.civB, Game.battleOutcome);
+  Game.battle = new BattleVisualizer(Game.renderer, Game.map, Game.civs, Game.battleOutcome);
   Game.battle.start();
 }
 
@@ -250,10 +275,18 @@ function finishGame() {
 
   const outcome = Game.battleOutcome;
   const winner = outcome.winner;
-  const loser = outcome.loser;
 
-  winner.army = Math.max(0, Math.floor(winner.army * (1 - outcome.winnerCasualtyPct)));
-  loser.army = 0;
+  // Apply final casualties: the victor is bloodied, the conquered wiped out.
+  if (outcome.threeWay) {
+    for (const e of outcome.entries) {
+      e.civ.army = e.civ === winner
+        ? Math.max(0, Math.floor(e.civ.army * (1 - e.casualtyPct)))
+        : 0;
+    }
+  } else {
+    winner.army = Math.max(0, Math.floor(winner.army * (1 - outcome.winnerCasualtyPct)));
+    outcome.loser.army = 0;
+  }
 
   setTimeout(() => {
     const titleEl = document.getElementById('winner-title');
@@ -274,11 +307,10 @@ function finishGame() {
     // Detailed power breakdown
     renderAftermathPower(outcome);
 
-    // Final stats side-by-side
-    document.getElementById('final-stats').innerHTML = `
-      ${finalStatCard(Game.civA)}
-      ${finalStatCard(Game.civB)}
-    `;
+    // Final stats side-by-side (or three-up)
+    const fs = document.getElementById('final-stats');
+    fs.classList.toggle('cols-3', !!Game.civC);
+    fs.innerHTML = Game.civs.map(finalStatCard).join('');
 
     showScreen('aftermath-screen');
   }, 1500);

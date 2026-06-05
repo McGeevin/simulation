@@ -124,17 +124,55 @@ function resolveBattle(civA, civB, world, rng) {
   };
 }
 
+// Resolve a three-way free-for-all. All three powers converge in a grand
+// melee; the highest roll conquers the world. Fully explainable: every
+// combatant carries its own power breakdown and luck roll.
+function resolveBattle3(civA, civB, civC, world, rng) {
+  const civs = [civA, civB, civC];
+  const entries = civs.map(civ => {
+    // Everyone defends their own realm on three fronts, so all get the
+    // defender treatment — terrain & fortification still differentiate them.
+    const breakdown = battlePowerBreakdown(civ, true);
+    const power = Math.floor(breakdown.final);
+    const luck = rng.range(0.90, 1.10);
+    return { civ, breakdown, power, luck, roll: power * luck, agg: aggressionFor(civ) };
+  });
+
+  // Rank by roll, highest wins.
+  entries.sort((a, b) => b.roll - a.roll);
+  const [first, second, third] = entries;
+  for (let i = 0; i < entries.length; i++) entries[i].rank = i;
+
+  // Casualties: the winner bleeds more the closer second place ran;
+  // the also-rans lose progressively more.
+  const closeWR = second.roll / Math.max(1, first.roll);
+  first.casualtyPct  = clamp(0.20 + closeWR * 0.40, 0.20, 0.65);
+  second.casualtyPct = clamp(0.62 + (1 - closeWR) * 0.25, 0.50, 0.95);
+  third.casualtyPct  = clamp(0.80 + (1 - third.roll / Math.max(1, first.roll)) * 0.18, 0.60, 0.98);
+
+  return {
+    threeWay: true,
+    entries,
+    winner: first.civ,
+    runnerUp: second.civ,
+    third: third.civ,
+    loser: second.civ,                      // nearest rival, for 2-way-shaped consumers
+    winnerCasualtyPct: first.casualtyPct,
+    loserCasualtyPct: second.casualtyPct,
+  };
+}
+
 // ============================================================
 // BATTLE VISUALIZATION
 // Spawns unit sprites that march toward the contested middle,
 // then animates a clash that reflects the resolved outcome.
+// Works for two or three sides.
 // ============================================================
 class BattleVisualizer {
-  constructor(renderer, map, civA, civB, outcome) {
+  constructor(renderer, map, civs, outcome) {
     this.renderer = renderer;
     this.map = map;
-    this.civA = civA;
-    this.civB = civB;
+    this.civs = civs.filter(Boolean);   // [civA, civB] or [civA, civB, civC]
     this.outcome = outcome;
     this.units = [];
     this.phase = 'spawn';     // spawn -> march -> clash -> resolve -> done
@@ -142,28 +180,34 @@ class BattleVisualizer {
     this.maxUnitsPerSide = 220;
     this.frames = 0;
     this.battleLog = [];
-    this.specialFired = { A: false, B: false };
+    this.specialFired = {};
+  }
+
+  capitalFor(side) {
+    if (side === 'A') return this.map.capitalA;
+    if (side === 'B') return this.map.capitalB;
+    return this.map.capitalC;
   }
 
   start() {
-    const spawnA = this.map.capitalA;
-    const spawnB = this.map.capitalB;
-
-    const aCount = Math.min(this.maxUnitsPerSide, Math.max(20, Math.floor(this.civA.army / 100)));
-    const bCount = Math.min(this.maxUnitsPerSide, Math.max(20, Math.floor(this.civB.army / 100)));
-
-    for (let i = 0; i < aCount; i++) this.units.push(this.createUnit('A', spawnA));
-    for (let i = 0; i < bCount; i++) this.units.push(this.createUnit('B', spawnB));
+    const endY = this.map.endYear || 1000;
+    for (const civ of this.civs) {
+      const spawn = this.capitalFor(civ.side) || { x: this.map.width / 2, y: this.map.height / 2 };
+      const count = Math.min(this.maxUnitsPerSide, Math.max(20, Math.floor(civ.army / 100)));
+      for (let i = 0; i < count; i++) this.units.push(this.createUnit(civ.side, spawn, civ));
+      this.battleLog.push({ year: endY, text: `${civ.name} fields ${formatNum(civ.army)} soldiers.` });
+    }
 
     this.renderer.battleUnits = this.units;
     this.phase = 'march';
-    this.battleLog.push({ year: this.map.endYear || 1000, text: `${this.civA.name} fields ${formatNum(this.civA.army)} soldiers.` });
-    this.battleLog.push({ year: this.map.endYear || 1000, text: `${this.civB.name} fields ${formatNum(this.civB.army)} soldiers.` });
-    this.battleLog.push({ year: this.map.endYear || 1000, text: `${this.outcome.invader.name} marches to attack.` });
+    if (this.outcome.threeWay) {
+      this.battleLog.push({ year: endY, text: `Three powers converge for the final war.` });
+    } else {
+      this.battleLog.push({ year: endY, text: `${this.outcome.invader.name} marches to attack.` });
+    }
   }
 
-  createUnit(side, near) {
-    const civ = side === 'A' ? this.civA : this.civB;
+  createUnit(side, near, civ) {
     return {
       side,
       x: near.x + (Math.random() - 0.5) * 8,
@@ -190,18 +234,20 @@ class BattleVisualizer {
     const midX = this.map.width / 2;
     const midY = this.map.height / 2;
 
-    if (this.phaseTime === 30 && this.civA.weaponUnlocked && !this.specialFired.A) {
-      this.fireSpecial(this.civA); this.specialFired.A = true;
-    }
-    if (this.phaseTime === 45 && this.civB.weaponUnlocked && !this.specialFired.B) {
-      this.fireSpecial(this.civB); this.specialFired.B = true;
+    // Fire each side's special weapon, staggered as the armies approach.
+    let t = 30;
+    for (const civ of this.civs) {
+      if (this.phaseTime === t && civ.weaponUnlocked && !this.specialFired[civ.side]) {
+        this.fireSpecial(civ); this.specialFired[civ.side] = true;
+      }
+      t += 15;
     }
 
     let movingCount = 0;
     for (const u of this.units) {
       if (u.dead) continue;
-      const targetX = midX + (u.side === 'A' ? 1 : -1) * (-2);
-      const targetY = midY + (Math.sin((u.x + u.y) * 0.3) * 6);
+      const targetX = midX + (Math.sin((u.x + u.y) * 0.3) * 4);
+      const targetY = midY + (Math.sin((u.x - u.y) * 0.3) * 4);
       const dx = targetX - u.x;
       const dy = targetY - u.y;
       const d = Math.sqrt(dx * dx + dy * dy);
@@ -219,31 +265,32 @@ class BattleVisualizer {
     }
   }
 
+  // Per-side per-frame attrition rate, derived from the resolved outcome.
+  lossRateForSide(side) {
+    const o = this.outcome;
+    if (o.threeWay) {
+      const e = o.entries.find(en => en.civ.side === side);
+      return [0.006, 0.013, 0.020][e ? e.rank : 1] || 0.013;
+    }
+    if (side === o.winner.side) return 0.005 + o.winnerCasualtyPct * 0.0002;
+    return 0.012 + o.loserCasualtyPct * 0.0003;
+  }
+
   stepClash() {
     const outcome = this.outcome;
     const winnerSide = outcome.winner.side;
-    const loserSide = outcome.loser.side;
 
     const alive = this.units.filter(u => !u.dead);
-    const aliveA = alive.filter(u => u.side === 'A');
-    const aliveB = alive.filter(u => u.side === 'B');
+    const bySide = {};
+    for (const u of alive) (bySide[u.side] || (bySide[u.side] = [])).push(u);
 
-    const winnerLossRate = 0.005 + outcome.winnerCasualtyPct * 0.0002;
-    const loserLossRate  = 0.012 + outcome.loserCasualtyPct  * 0.0003;
-
-    const winnerAlive = winnerSide === 'A' ? aliveA : aliveB;
-    const loserAlive  = loserSide  === 'A' ? aliveA : aliveB;
-
-    const winnerKills = Math.ceil(winnerAlive.length * winnerLossRate);
-    const loserKills  = Math.ceil(loserAlive.length  * loserLossRate);
-
-    for (let i = 0; i < winnerKills; i++) {
-      const u = winnerAlive[Math.floor(Math.random() * winnerAlive.length)];
-      if (u && !u.dead) { u.dead = true; this.renderer.addParticle(u.x, u.y, '#c23b22', 25); }
-    }
-    for (let i = 0; i < loserKills; i++) {
-      const u = loserAlive[Math.floor(Math.random() * loserAlive.length)];
-      if (u && !u.dead) { u.dead = true; this.renderer.addParticle(u.x, u.y, '#c23b22', 25); }
+    for (const side in bySide) {
+      const list = bySide[side];
+      const kills = Math.ceil(list.length * this.lossRateForSide(side));
+      for (let i = 0; i < kills; i++) {
+        const u = list[Math.floor(Math.random() * list.length)];
+        if (u && !u.dead) { u.dead = true; this.renderer.addParticle(u.x, u.y, '#c23b22', 25); }
+      }
     }
 
     for (const u of this.units) {
@@ -252,32 +299,33 @@ class BattleVisualizer {
       u.y += (Math.random() - 0.5) * 0.15;
     }
 
-    const loserCountInitial = (loserSide === 'A' ? this.units.filter(u => u.side === 'A').length : this.units.filter(u => u.side === 'B').length);
-    if (loserAlive.length < loserCountInitial * 0.15 || this.phaseTime > 240) {
+    const winnerAlive = (bySide[winnerSide] || []).length;
+    const otherAlive = alive.length - winnerAlive;
+    if (otherAlive < this.units.length * 0.12 || this.phaseTime > 260) {
       this.phase = 'resolve';
       this.phaseTime = 0;
-      this.battleLog.push({ year: this.map.endYear || 1000, text: `${outcome.winner.name} routs the enemy!` });
+      this.battleLog.push({ year: this.map.endYear || 1000, text: `${outcome.winner.name} ${outcome.threeWay ? 'stands triumphant' : 'routs the enemy'}!` });
     }
   }
 
   stepResolve() {
     const outcome = this.outcome;
-    const loserSide = outcome.loser.side;
+    const winnerSide = outcome.winner.side;
 
+    // Survivors of the defeated nations are cut down.
     for (const u of this.units) {
-      if (u.dead) continue;
-      if (u.side === loserSide && Math.random() < 0.05) {
+      if (u.dead || u.side === winnerSide) continue;
+      if (Math.random() < 0.05) {
         u.dead = true;
         this.renderer.addParticle(u.x, u.y, '#c23b22', 20);
       }
     }
 
-    const winnerSide = outcome.winner.side;
+    // The victors fan out and recolor the land.
     for (const u of this.units) {
       if (u.dead || u.side !== winnerSide) continue;
-      const dirX = winnerSide === 'A' ? 1 : -1;
-      u.x += dirX * 0.25;
-      u.y += (Math.random() - 0.5) * 0.1;
+      u.x += (Math.random() - 0.5) * 0.3 + 0.05;
+      u.y += (Math.random() - 0.5) * 0.2;
       const tx = Math.floor(u.x);
       const ty = Math.floor(u.y);
       if (tx >= 0 && tx < this.map.width && ty >= 0 && ty < this.map.height) {
@@ -300,8 +348,7 @@ class BattleVisualizer {
     if (!w) return;
     this.battleLog.push({ year: this.map.endYear || 1000, text: `${civ.name} unleashes ${w.name}!` });
 
-    const enemySide = civ.side === 'A' ? 'B' : 'A';
-    const enemies = this.units.filter(u => u.side === enemySide && !u.dead);
+    const enemies = this.units.filter(u => u.side !== civ.side && !u.dead);
     const target = enemies[Math.floor(Math.random() * enemies.length)];
     if (target) {
       for (let i = 0; i < 50; i++) {

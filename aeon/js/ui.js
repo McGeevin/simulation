@@ -4,20 +4,49 @@
 // event logs, and the end-of-game power breakdown.
 // ============================================================
 
+const SIDE_DEFAULTS = {
+  A: { race: 'humans', focus: 'science',  government: 'monarchy', weapon: 'siege', biome: 'forest' },
+  B: { race: 'orcs',   focus: 'military', government: 'monarchy', weapon: 'siege', biome: 'mountain' },
+  C: { race: 'dwarves', focus: 'industry', government: 'monarchy', weapon: 'siege', biome: 'highlands' },
+};
+
 function populateSelects() {
   document.querySelectorAll('.civ-config').forEach(panel => {
     const side = panel.dataset.side;
-    populateSelect(panel.querySelector('[data-field="race"]'), RACES, side === 'A' ? 'humans' : 'orcs');
-    populateSelect(panel.querySelector('[data-field="focus"]'), FOCUSES, side === 'A' ? 'science' : 'military');
-    populateSelect(panel.querySelector('[data-field="government"]'), GOVERNMENTS, 'monarchy');
-    populateSelect(panel.querySelector('[data-field="weapon"]'), WEAPONS, 'siege');
-    populateSelect(panel.querySelector('[data-field="biome"]'), BIOMES, side === 'A' ? 'forest' : 'mountain');
+    const d = SIDE_DEFAULTS[side] || SIDE_DEFAULTS.A;
+    populateSelect(panel.querySelector('[data-field="race"]'), RACES, d.race);
+    populateSelect(panel.querySelector('[data-field="focus"]'), FOCUSES, d.focus);
+    populateSelect(panel.querySelector('[data-field="government"]'), GOVERNMENTS, d.government);
+    populateSelect(panel.querySelector('[data-field="weapon"]'), WEAPONS, d.weapon);
+    populateSelect(panel.querySelector('[data-field="biome"]'), BIOMES, d.biome);
 
     panel.querySelectorAll('select').forEach(sel => {
       sel.addEventListener('change', () => updateHints(panel));
     });
     updateHints(panel);
   });
+  initPlayerCount();
+}
+
+// ---- 2-player / 3-player toggle ----
+function initPlayerCount() {
+  const seg = document.getElementById('player-count');
+  if (!seg) return;
+  seg.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      seg.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const three = btn.dataset.players === '3';
+      document.querySelector('.setup-grid').classList.toggle('three-player', three);
+      const panelC = document.querySelector('.civ-config[data-side="C"]');
+      if (panelC) panelC.style.display = three ? '' : 'none';
+    });
+  });
+}
+
+function playerCount() {
+  const active = document.querySelector('#player-count button.active');
+  return active && active.dataset.players === '3' ? 3 : 2;
 }
 
 function populateSelect(selectEl, source, defaultKey) {
@@ -123,13 +152,17 @@ function updateHints(panel) {
 }
 
 function readConfig() {
+  const players = playerCount();
   const config = { A: {}, B: {}, world: {} };
+  if (players === 3) config.C = {};
   document.querySelectorAll('.civ-config').forEach(panel => {
     const side = panel.dataset.side;
+    if (!config[side]) return;            // skip Side C when in 2-player mode
     panel.querySelectorAll('[data-field]').forEach(el => {
       config[side][el.dataset.field] = el.value;
     });
   });
+  config.world.players = players;
   config.world.mapSize = document.getElementById('world-mapsize').value;
   config.world.disasters = document.getElementById('world-disasters').value;
   config.world.startingTech = document.getElementById('world-tech').value;
@@ -194,13 +227,15 @@ function setBar(id, val) {
   el.style.background = val >= 100 ? 'var(--good)' : val >= 50 ? 'var(--accent)' : 'var(--bad)';
 }
 
-function renderLegend(civA, civB) {
+function renderLegend(civs) {
   const el = document.getElementById('map-legend');
   if (!el) return;
-  el.innerHTML = `
-    <div class="lg-row"><span class="lg-swatch" style="background:${escapeHtml(civA.color)}"></span>${escapeHtml(civA.name)} <small>${escapeHtml(civA.biomeData.name)}</small></div>
-    <div class="lg-row"><span class="lg-swatch" style="background:${escapeHtml(civB.color)}"></span>${escapeHtml(civB.name)} <small>${escapeHtml(civB.biomeData.name)}</small></div>
-    <div class="lg-row lg-cap"><span class="lg-star">★</span>Capital</div>`;
+  let rows = '';
+  for (const c of civs) {
+    rows += `<div class="lg-row"><span class="lg-swatch" style="background:${escapeHtml(c.color)}"></span>${escapeHtml(c.name)} <small>${escapeHtml(c.biomeData.name)}</small></div>`;
+  }
+  rows += `<div class="lg-row lg-cap"><span class="lg-star">★</span>Capital</div>`;
+  el.innerHTML = rows;
 }
 
 function logEvent(side, year, text, tag = 'cultural') {
@@ -262,9 +297,49 @@ function buildPowerNarrative(o) {
   return lines.map(l => `<p>${l}</p>`).join('');
 }
 
+function buildPowerNarrative3(o) {
+  const w = o.entries[0], second = o.entries[1], third = o.entries[2];
+  const byPower = [...o.entries].sort((a, b) => b.power - a.power);
+  const favored = byPower[0];
+  const upset = favored.civ !== o.winner;
+  const margin = (w.roll - second.roll) / Math.max(1, w.roll) * 100;
+
+  let top = null;
+  for (const f of w.breakdown.factors) { if (!top || f.mult > top.mult) top = f; }
+
+  const lines = [];
+  lines.push(`A three-way war decided the fate of the world. On raw power the order was <strong>${escapeHtml(byPower[0].civ.name)}</strong> (${formatNum(byPower[0].power)}), <strong>${escapeHtml(byPower[1].civ.name)}</strong> (${formatNum(byPower[1].power)}), then <strong>${escapeHtml(byPower[2].civ.name)}</strong> (${formatNum(byPower[2].power)}).`);
+  if (upset) {
+    lines.push(`The fog of war upset the odds: <strong style="color:${escapeHtml(o.winner.color)}">${escapeHtml(o.winner.name)}</strong> seized victory without holding the strongest army on paper.`);
+  } else if (margin < 8) {
+    lines.push(`<strong style="color:${escapeHtml(o.winner.color)}">${escapeHtml(o.winner.name)}</strong> prevailed, but only just — a ${margin.toFixed(0)}% edge over <strong>${escapeHtml(second.civ.name)}</strong> once the dice settled.`);
+  } else {
+    lines.push(`<strong style="color:${escapeHtml(o.winner.color)}">${escapeHtml(o.winner.name)}</strong> won decisively, ${margin.toFixed(0)}% clear of <strong>${escapeHtml(second.civ.name)}</strong> after the rolls landed.`);
+  }
+  if (top) {
+    lines.push(`Their single greatest edge was <strong>${escapeHtml(top.label)}</strong> (×${top.mult.toFixed(2)})${top.detail ? ' — ' + escapeHtml(top.detail) : ''}.`);
+  }
+  lines.push(`<strong>${escapeHtml(third.civ.name)}</strong> fell first, losing ${(third.casualtyPct * 100).toFixed(0)}% of their army; the victors lost roughly ${(w.casualtyPct * 100).toFixed(0)}%.`);
+  return lines.map(l => `<p>${l}</p>`).join('');
+}
+
 function renderAftermathPower(outcome) {
   const el = document.getElementById('power-explainer');
   if (!el) return;
+
+  if (outcome.threeWay) {
+    const cols = outcome.entries
+      .map(e => renderPowerColumn(e.civ, e.breakdown, e.roll, e.luck, e.civ === outcome.winner))
+      .join('');
+    el.innerHTML = `
+      <h3 class="pb-title">How the battle was decided</h3>
+      <div class="pb-narrative">${buildPowerNarrative3(outcome)}</div>
+      <div class="pb-grid pb-grid-3">${cols}</div>
+      <p class="pb-foot">Battle power = troops × tech-age arms, then multiplied by doctrine, morale, stability, terrain, fortification and any special weapon. In a three-way war the highest roll after a ±10% "fog of war" swing conquers the world.</p>
+    `;
+    return;
+  }
+
   el.innerHTML = `
     <h3 class="pb-title">How the battle was decided</h3>
     <div class="pb-narrative">${buildPowerNarrative(outcome)}</div>

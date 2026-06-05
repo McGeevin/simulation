@@ -1,6 +1,6 @@
-# AEON — 1v1 Civilization Simulator
+# AEON — 1v1 / 1v1v1 Civilization Simulator
 
-A two-civilization sandbox simulator spanning anywhere from 500 to 10,000 years. Pick race, focus, weapon, government, and biome for each side, choose how long history runs, press play, and watch civilizations rise (or collapse) on a split-biome map. At the end of the run they fight a final battle for the world — and the aftermath screen shows exactly how that battle's power was calculated, factor by factor.
+A civilization sandbox simulator spanning anywhere from 500 to 10,000 years. Choose **two players (a duel) or three (a free-for-all)**, pick race, focus, weapon, government, and biome for each side, choose how long history runs, press play, and watch civilizations rise (or collapse) on a split-biome map. At the end of the run they fight a final battle for the world — and the aftermath screen shows exactly how that battle's power was calculated, factor by factor, for every side.
 
 ## Running
 
@@ -74,6 +74,13 @@ aeon/
 - Display/UI/mono font system, refined palette with gradients and glows, morale/stability bars, custom scrollbars
 - Incremental owned-tile caching keeps even a 10,000-year run on the huge map under ~2 seconds when skipped to the end
 
+**Phase 6 (Three-Player Free-for-All)**
+- A **2-player / 3-player toggle** on the setup screen. Pick "3 · Free-for-all" and a third side (Side C) appears with its own race/focus/government/weapon/biome pickers
+- The world splits into **three biome zones** (left / middle / right) with wavy contested borders between each neighbouring pair; each side gets its own capital and colour
+- All three civilizations simulate in parallel — independent populations, tech, events, territory expansion, and border skirmishes wherever two of them touch
+- A third live stats panel joins the map, and the timeline plots a third event stream
+- The finale is a **three-way battle**: all three armies converge in a grand melee, the highest roll (after the fog-of-war swing) conquers the world, and the aftermath shows a full power breakdown for all three — including who fell first
+
 **Phase 5 (Living Map + Codex)**
 - **Ambient citizens**: small figures of each race wander between their settlements in real time, so the map feels populated (purely cosmetic — never affects the deterministic sim)
 - **Construction animations**: every new or upgraded settlement rises out of the ground behind scaffolding, with dust and chimney smoke
@@ -105,6 +112,6 @@ aeon/
 - Replace canvas-drawn shapes with actual sprite sheets in `assets/`
 - Add sound effects (battle clash, age-up jingle)
 - Diplomatic actions pre-battle (trade, alliance, vassalage)
-- Multi-civ (3+ way) instead of 1v1
+- Four-or-more-way maps (the engine and renderer already generalise to N sides — it's mostly UI/layout work)
 - Save run summaries to clipboard
 - More tech-age-specific unit visuals during battle

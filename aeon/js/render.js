@@ -251,7 +251,8 @@ class Renderer {
   }
 
   // ---- DYNAMIC LAYERS (every frame) ----
-  render(civA, civB, year, mode = 'sim') {
+  // civs is an array: [civA, civB] for 1v1, [civA, civB, civC] for 1v1v1.
+  render(civs, year, mode = 'sim') {
     this.mode = mode;
     const ctx = this.ctx;
     ctx.imageSmoothingEnabled = false;
@@ -278,12 +279,12 @@ class Renderer {
       ctx.fillRect(this.offsetX + l.x * ts + Math.floor(ts * 0.3), this.offsetY + l.y * ts + Math.floor(ts * 0.45), Math.max(1, Math.floor(ts * 0.4)), 1);
     }
 
-    this.renderTerritory(civA, civB, ts);
+    this.renderTerritory(civs, ts);
 
-    const settlements = this.collectSettlements(civA, civB);
+    const settlements = this.collectSettlements(civs);
 
     if (mode === 'sim') {
-      this.updateCitizens(civA, civB, settlements);
+      this.updateCitizens(civs, settlements);
       this.drawCitizens(ts);
     }
 
@@ -302,39 +303,43 @@ class Renderer {
     ctx.globalAlpha = 1;
   }
 
-  collectSettlements(civA, civB) {
+  collectSettlements(civs) {
     const out = [];
-    if (civA._settlements) for (const e of civA._settlements) out.push({ x: e.x, y: e.y, s: e.s, civ: civA });
-    if (civB._settlements) for (const e of civB._settlements) out.push({ x: e.x, y: e.y, s: e.s, civ: civB });
+    const byOwner = {};
+    for (const civ of civs) {
+      byOwner[civ.side] = civ;
+      if (civ._settlements) for (const e of civ._settlements) out.push({ x: e.x, y: e.y, s: e.s, civ });
+    }
     if (out.length === 0) {
       // Early-game fallback before the sim builds its caches.
       const tiles = this.map.tiles;
       for (let y = 0; y < this.map.height; y++) {
         for (let x = 0; x < this.map.width; x++) {
           const s = tiles[y][x].settlement;
-          if (s) out.push({ x, y, s, civ: s.owner === 'A' ? civA : civB });
+          if (s && byOwner[s.owner]) out.push({ x, y, s, civ: byOwner[s.owner] });
         }
       }
     }
     return out;
   }
 
-  renderTerritory(civA, civB, ts) {
+  renderTerritory(civs, ts) {
     const ctx = this.ctx;
     const tiles = this.map.tiles;
-    const aFill = alphaColor(civA.color, 0.20);
-    const bFill = alphaColor(civB.color, 0.20);
-    const aLine = alphaColor(lighten(civA.color, 0.25), 0.9);
-    const bLine = alphaColor(lighten(civB.color, 0.25), 0.9);
+    const fill = {}, line = {};
+    for (const civ of civs) {
+      fill[civ.side] = alphaColor(civ.color, 0.20);
+      line[civ.side] = alphaColor(lighten(civ.color, 0.25), 0.9);
+    }
 
     for (let y = 0; y < this.map.height; y++) {
       for (let x = 0; x < this.map.width; x++) {
         const owner = tiles[y][x].owner;
-        if (!owner) continue;
+        if (!owner || !fill[owner]) continue;
         const px = this.offsetX + x * ts, py = this.offsetY + y * ts;
-        ctx.fillStyle = owner === 'A' ? aFill : bFill;
+        ctx.fillStyle = fill[owner];
         ctx.fillRect(px, py, ts, ts);
-        ctx.fillStyle = owner === 'A' ? aLine : bLine;
+        ctx.fillStyle = line[owner];
         const right = x + 1 < this.map.width ? tiles[y][x + 1].owner : null;
         const down  = y + 1 < this.map.height ? tiles[y + 1][x].owner : null;
         const left  = x > 0 ? tiles[y][x - 1].owner : null;
@@ -350,11 +355,12 @@ class Renderer {
   // ---- AMBIENT CITIZENS ----
   // Cosmetic-only: small figures of each race wandering between their
   // settlements. Decoupled from the deterministic sim entirely.
-  updateCitizens(civA, civB, settlements) {
-    const bySide = { A: [], B: [] };
-    for (const e of settlements) bySide[e.s.owner].push(e);
+  updateCitizens(civs, settlements) {
+    const bySide = {};
+    for (const civ of civs) bySide[civ.side] = [];
+    for (const e of settlements) if (bySide[e.s.owner]) bySide[e.s.owner].push(e);
 
-    for (const civ of [civA, civB]) {
+    for (const civ of civs) {
       const homes = bySide[civ.side];
       const target = homes.length === 0 ? 0
         : Math.min(45, homes.length * 2 + Math.min(18, Math.floor(Math.log10(civ.population + 1) * 3)));
@@ -645,7 +651,8 @@ class TimelineRenderer {
     };
     for (const ev of this.events) {
       const x = 24 + (ev.year / my) * (w - 48);
-      const yOffset = ev.side === 'A' ? -10 : 10;
+      // A above the line, B below, C on the line (for the third player).
+      const yOffset = ev.side === 'A' ? -12 : ev.side === 'B' ? 12 : 0;
       ctx.fillStyle = tagColors[ev.tag] || '#d8dde8';
       ctx.fillRect(x - 1, h / 2 + yOffset - 2, 3, 4);
     }

@@ -23,6 +23,7 @@
   --magic:     #c97aff;
   --side-a:    #4a90e2;
   --side-b:    #e74c3c;
+  --side-c:    #9b59b6;
 
   --font-display: 'Cinzel', Georgia, serif;
   --font-ui:      'Rajdhani', 'Segoe UI', sans-serif;
@@ -97,11 +98,34 @@ body {
 }
 .civ-config[data-side="A"] { border-top: 3px solid var(--side-a); }
 .civ-config[data-side="B"] { border-top: 3px solid var(--side-b); }
+.civ-config[data-side="C"] { border-top: 3px solid var(--side-c); }
 .world-config { border-top: 3px solid var(--accent); }
 
 .civ-config[data-side="A"] h2 { color: var(--side-a); }
 .civ-config[data-side="B"] h2 { color: var(--side-b); }
+.civ-config[data-side="C"] h2 { color: var(--side-c); }
 .world-config h2 { color: var(--accent); }
+
+/* 3-player: a fourth column (A · World · B · C). */
+.setup-grid.three-player { grid-template-columns: 1fr 1fr 1fr 1fr; max-width: 1820px; }
+@media (max-width: 1200px) { .setup-grid.three-player { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 1000px) { .setup-grid.three-player { grid-template-columns: 1fr; } }
+
+/* Player-count segmented toggle */
+.segmented {
+  display: flex; margin-top: 5px;
+  border: 1px solid var(--border); border-radius: 5px; overflow: hidden;
+}
+.segmented button {
+  flex: 1; background: var(--bg-light); border: none;
+  border-right: 1px solid var(--border);
+  color: var(--text-dim); padding: 9px 6px; cursor: pointer;
+  font-family: var(--font-ui); font-weight: 700; font-size: 13px; letter-spacing: 0.5px;
+  transition: background .12s, color .12s;
+}
+.segmented button:last-child { border-right: none; }
+.segmented button.active { background: var(--accent); color: var(--bg-deep); }
+.segmented button:hover:not(.active) { background: var(--bg-lift); color: var(--text); }
 
 .civ-config h2, .world-config h2 {
   font-family: var(--font-display);
@@ -309,6 +333,11 @@ select:focus, input:focus {
   overflow: hidden;
 }
 #panel-B { border-right: none; border-left: 1px solid var(--border); }
+#panel-C { border-right: none; border-left: 1px solid var(--border); }
+
+/* 1v1v1: three panels flank the map (A · map · B · C). Narrow them to fit. */
+.sim-body.three .civ-panel { width: 226px; }
+@media (max-width: 1280px) { .sim-body.three .civ-panel { width: 196px; } }
 
 .civ-header { padding: 14px; border-bottom: 1px solid var(--border); }
 .civ-name {
@@ -463,7 +492,9 @@ select:focus, input:focus {
 .pb-narrative strong { color: var(--text-bright); }
 
 .pb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.pb-grid.pb-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
 @media (max-width: 720px) { .pb-grid { grid-template-columns: 1fr; } }
+@media (max-width: 820px) { .pb-grid.pb-grid-3 { grid-template-columns: 1fr; } }
 .pb-col {
   background: var(--bg-deep);
   border: 1px solid var(--border);
@@ -530,7 +561,8 @@ select:focus, input:focus {
   display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
   margin-bottom: 26px; text-align: left;
 }
-@media (max-width: 720px) { .final-stats { grid-template-columns: 1fr; } }
+.final-stats.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+@media (max-width: 720px) { .final-stats, .final-stats.cols-3 { grid-template-columns: 1fr; } }
 .final-stats > div {
   background: var(--bg-mid); border: 1px solid var(--border);
   padding: 16px; border-radius: 8px;

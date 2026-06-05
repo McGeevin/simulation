@@ -58,7 +58,7 @@ function createCiv(config, side, world, rng) {
     tempMods: {},
     activeEvents: [],
 
-    rng: rng.fork(side === 'A' ? 0xAAA : 0xBBB),
+    rng: rng.fork(side === 'A' ? 0xAAA : side === 'B' ? 0xBBB : 0xCCC),
   };
 }
 
@@ -88,7 +88,9 @@ function getMod(civ, key) {
 // ============================================================
 // YEARLY TICK
 // ============================================================
-function tickYear(civ, year, world, map, otherCiv, log) {
+function tickYear(civ, year, world, map, others, log) {
+  // Accept either a single opponent (back-compat) or an array of them.
+  const otherCivs = Array.isArray(others) ? others.filter(Boolean) : (others ? [others] : []);
   const fitness = biomeFitness(civ);
 
   // --- POPULATION ---
@@ -204,20 +206,24 @@ function tickYear(civ, year, world, map, otherCiv, log) {
     const newTiles = expandTerritory(map, civ, expansionRate, civ.rng);
     civ.territory += newTiles.length;
 
-    // Check for contact
-    if (!civ.inContact && world.interaction !== 'isolated' && otherCiv) {
-      if (territoriesAdjacent(map, civ, otherCiv)) {
-        civ.inContact = true;
-        otherCiv.inContact = true;
-        log(civ.side, year, `First contact with ${otherCiv.name}.`, 'major');
+    // Check for contact with each other civilization (per-pair, logged once).
+    if (world.interaction !== 'isolated') {
+      for (const other of otherCivs) {
+        if (civ._contacted && civ._contacted[other.side]) continue;
+        if (territoriesAdjacent(map, civ, other)) {
+          markContact(civ, other);
+          log(civ.side, year, `First contact with ${other.name}.`, 'major');
+        }
       }
     }
     const contactYear = Math.floor((world.maxYear || 1000) * 0.7);
-    if (!civ.inContact && world.interaction === 'isolated' && year >= contactYear && otherCiv && !otherCiv.inContact) {
+    if (world.interaction === 'isolated' && year >= contactYear) {
       // Force contact at 70% of the run so the final battle is never a stranger.
-      civ.inContact = true;
-      otherCiv.inContact = true;
-      log(civ.side, year, `Scouts report a foreign civilization.`, 'major');
+      for (const other of otherCivs) {
+        if (civ._contacted && civ._contacted[other.side]) continue;
+        markContact(civ, other);
+        log(civ.side, year, `Scouts report a foreign civilization.`, 'major');
+      }
     }
   }
 
@@ -226,13 +232,20 @@ function tickYear(civ, year, world, map, otherCiv, log) {
   }
 
   // --- BORDER SKIRMISHES ---
-  if (civ.inContact && world.interaction !== 'isolated' && otherCiv && civ.rng.chance(0.015)) {
+  if (civ.inContact && world.interaction !== 'isolated' && otherCivs.length > 0 && civ.rng.chance(0.015)) {
     const losses = Math.floor(civ.army * civ.rng.range(0.01, 0.05));
     civ.army = Math.max(0, civ.army - losses);
     if (civ.rng.chance(0.3)) {
       log(civ.side, year, `Border skirmish: lost ${losses} soldiers.`, 'war');
     }
   }
+}
+
+// Record a mutual first-contact between two civs (no RNG — keeps runs deterministic).
+function markContact(a, b) {
+  a.inContact = true; b.inContact = true;
+  (a._contacted || (a._contacted = {}))[b.side] = true;
+  (b._contacted || (b._contacted = {}))[a.side] = true;
 }
 
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
