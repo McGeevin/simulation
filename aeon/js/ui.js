@@ -594,3 +594,312 @@ function renderAgeSheet() {
   return `<div class="sheet-scroll"><table class="sheet-table">
     <tr><th class="sticky-col">Tech Age</th><th>Knowledge to reach (log scale)</th><th>Army tech multiplier</th></tr>${rows}</table></div>`;
 }
+
+// ============================================================
+// ASYNC 1v1 MULTIPLAYER (URL-param based, no server)
+// ------------------------------------------------------------
+// Flow:
+//   • Player 1 configures Side A, clicks "Challenge a Friend" → a link
+//     encoding Side A + world settings is copied to the clipboard.
+//   • Player 2 opens that link → Side A and the world settings load
+//     locked/read-only ("Opponent locked in"); they pick Side B and
+//     click "Accept & Run".  On accept, the URL is rewritten to encode
+//     BOTH sides and auto-copied so it can be sent back to Player 1.
+//   • Player 1 opens that full link → both sides lock, "Run Match".
+//
+// Determinism: the seed is derived from a hash of the *combined* config
+// (both sides' gameplay choices + world settings).  Identical config →
+// identical seed → bit-for-bit identical run for both players.  The
+// simulation engine itself is never touched — only which integer seeds
+// the RNG, plus a URL rewrite on accept.
+// ============================================================
+
+// Shared multiplayer state, read by main.js's startSim().
+const MP = { active: false, role: null, config: null };
+
+const MP_VERSION = '1';
+
+// Per-side defaults used when reconstructing names/colors from a link.
+const MP_SIDE_FALLBACK = {
+  A: { name: 'The First',  color: '#4a90e2' },
+  B: { name: 'The Second', color: '#e74c3c' },
+};
+
+// ---- Seed derivation (FNV-1a, 32-bit) ----
+// Hashes only gameplay-relevant fields (not cosmetic name/color, not a
+// manual seed — that field is hidden in multiplayer mode).
+function hashConfigToSeed(config) {
+  const w = config.world;
+  const fields = [
+    config.A.race, config.A.focus, config.A.government, config.A.weapon, config.A.biome,
+    config.B.race, config.B.focus, config.B.government, config.B.weapon, config.B.biome,
+    String(w.maxYear), w.mapSize, w.disasters, w.startingTech, w.interaction,
+  ];
+  const str = fields.join('');
+  let h = 0x811c9dc5 >>> 0;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+
+// ---- URL encode ----
+// URLSearchParams handles all escaping (long names, '#' in colors, unicode).
+// includeB controls whether Side B is written (challenge link omits it).
+function encodeMatchURL(config, includeB) {
+  const p = new URLSearchParams();
+  p.set('v', MP_VERSION);
+  p.set('ar', config.A.race);
+  p.set('af', config.A.focus);
+  p.set('ag', config.A.government);
+  p.set('aw', config.A.weapon);
+  p.set('ab', config.A.biome);
+  p.set('an', config.A.name);
+  p.set('ac', config.A.color);
+  if (includeB && config.B) {
+    p.set('br', config.B.race);
+    p.set('bf', config.B.focus);
+    p.set('bg', config.B.government);
+    p.set('bw', config.B.weapon);
+    p.set('bb', config.B.biome);
+    p.set('bn', config.B.name);
+    p.set('bc', config.B.color);
+  }
+  p.set('wl', String(config.world.maxYear));
+  p.set('wm', config.world.mapSize);
+  p.set('wd', config.world.disasters);
+  p.set('wt', config.world.startingTech);
+  p.set('wi', config.world.interaction);
+  return location.origin + location.pathname + '?' + p.toString();
+}
+
+// ---- URL decode ----
+// Returns null when no challenge params are present. URLSearchParams
+// transparently reverses all the escaping done on encode.
+function decodeMatchParams() {
+  const p = new URLSearchParams(location.search);
+  if (!p.get('ar')) return null;
+
+  const side = (prefix, fb) => ({
+    race:       p.get(prefix + 'r'),
+    focus:      p.get(prefix + 'f'),
+    government: p.get(prefix + 'g'),
+    weapon:     p.get(prefix + 'w'),
+    biome:      p.get(prefix + 'b'),
+    name:       p.get(prefix + 'n') || fb.name,
+    color:      p.get(prefix + 'c') || fb.color,
+  });
+
+  const A = side('a', MP_SIDE_FALLBACK.A);
+  const hasB = !!p.get('br');
+  const B = hasB ? side('b', MP_SIDE_FALLBACK.B) : null;
+  const world = {
+    length:      p.get('wl'),
+    mapsize:     p.get('wm'),
+    disasters:   p.get('wd'),
+    tech:        p.get('wt'),
+    interaction: p.get('wi'),
+  };
+
+  const decoded = { A, B, world };
+  sanitizeDecoded(decoded);
+  return decoded;
+}
+
+// Guard against links from a newer/older build referencing options that
+// no longer exist — fall back to sensible defaults rather than break.
+function sanitizeDecoded(decoded) {
+  let repaired = false;
+  const fixSide = (s, sideKey) => {
+    if (!s) return;
+    const d = SIDE_DEFAULTS[sideKey] || SIDE_DEFAULTS.A;
+    if (!RACES[s.race])            { s.race = d.race; repaired = true; }
+    if (!FOCUSES[s.focus])         { s.focus = d.focus; repaired = true; }
+    if (!GOVERNMENTS[s.government]) { s.government = d.government; repaired = true; }
+    if (!WEAPONS[s.weapon])        { s.weapon = d.weapon; repaired = true; }
+    if (!BIOMES[s.biome])          { s.biome = d.biome; repaired = true; }
+    if (!/^#[0-9a-fA-F]{6}$/.test(s.color || '')) { s.color = MP_SIDE_FALLBACK[sideKey].color; repaired = true; }
+    if (!s.name) s.name = MP_SIDE_FALLBACK[sideKey].name;
+  };
+  fixSide(decoded.A, 'A');
+  fixSide(decoded.B, 'B');
+
+  const w = decoded.world;
+  const lengths = ['500', '1000', '2000', '5000', '10000'];
+  if (!lengths.includes(String(w.length))) { w.length = '1000'; repaired = true; }
+  if (!MAP_SIZES[w.mapsize])               { w.mapsize = 'medium'; repaired = true; }
+  if (!['none','low','normal','high','apocalyptic'].includes(w.disasters)) { w.disasters = 'normal'; repaired = true; }
+  if (!['stone','bronze','iron'].includes(w.tech))                         { w.tech = 'stone'; repaired = true; }
+  if (!['isolated','contested','open'].includes(w.interaction))            { w.interaction = 'contested'; repaired = true; }
+
+  if (repaired) decoded._repaired = true;
+}
+
+// ---- Applying a decoded config to the form + locking it ----
+function applyConfigToPanel(sideKey, cfg) {
+  const panel = document.querySelector(`.civ-config[data-side="${sideKey}"]`);
+  if (!panel || !cfg) return;
+  const setF = (f, v) => {
+    const el = panel.querySelector(`[data-field="${f}"]`);
+    if (el && v != null) el.value = v;
+  };
+  setF('name', cfg.name);
+  setF('color', cfg.color);
+  setF('race', cfg.race);
+  setF('focus', cfg.focus);
+  setF('government', cfg.government);
+  setF('weapon', cfg.weapon);
+  setF('biome', cfg.biome);
+  updateHints(panel);
+}
+
+function lockPanel(sideKey, labelText) {
+  const panel = document.querySelector(`.civ-config[data-side="${sideKey}"]`);
+  if (!panel) return;
+  panel.classList.add('locked');
+  panel.querySelectorAll('input, select').forEach(el => { el.disabled = true; });
+  if (!panel.querySelector('.lock-badge')) {
+    const badge = document.createElement('div');
+    badge.className = 'lock-badge';
+    badge.textContent = '🔒 ' + labelText;
+    const h2 = panel.querySelector('h2');
+    if (h2) h2.insertAdjacentElement('afterend', badge);
+    else panel.insertBefore(badge, panel.firstChild);
+  }
+}
+
+function setWorldFromDecoded(w) {
+  const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+  set('world-length', w.length);
+  set('world-mapsize', w.mapsize);
+  set('world-disasters', w.disasters);
+  set('world-tech', w.tech);
+  set('world-interaction', w.interaction);
+}
+
+function lockWorld() {
+  const wc = document.querySelector('.world-config');
+  ['world-length', 'world-mapsize', 'world-disasters', 'world-tech', 'world-interaction']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = true; });
+
+  // Hide the manual seed field — the seed is derived in multiplayer mode.
+  const seed = document.getElementById('world-seed');
+  if (seed) { const lbl = seed.closest('label'); if (lbl) lbl.style.display = 'none'; }
+
+  // Hide the player-count toggle — multiplayer is strictly 1v1.
+  const pc = document.getElementById('player-count');
+  if (pc) { const lbl = pc.closest('label'); if (lbl) lbl.style.display = 'none'; }
+
+  if (wc && !wc.querySelector('.lock-badge')) {
+    const badge = document.createElement('div');
+    badge.className = 'lock-badge';
+    badge.textContent = '🔒 Set by challenger';
+    const h2 = wc.querySelector('h2');
+    if (h2) h2.insertAdjacentElement('afterend', badge);
+  }
+}
+
+function forceTwoPlayer() {
+  const seg = document.getElementById('player-count');
+  if (seg) seg.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.players === '2'));
+  const grid = document.querySelector('.setup-grid');
+  if (grid) grid.classList.remove('three-player');
+  const panelC = document.querySelector('.civ-config[data-side="C"]');
+  if (panelC) panelC.style.display = 'none';
+}
+
+// ---- Clipboard + toast ----
+function copyToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+  }
+  return Promise.resolve(fallbackCopy(text));
+}
+
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.top = '-1000px';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); } catch (e) { /* ignore */ }
+  document.body.removeChild(ta);
+  return true;
+}
+
+function showToast(msg, ms = 2800) {
+  const t = document.getElementById('toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), ms);
+}
+
+function setMpHint(html) {
+  const el = document.getElementById('mp-hint');
+  if (el) el.innerHTML = html || '';
+}
+
+// ---- Player 1: build + copy the challenge link ----
+function copyChallengeLink() {
+  const config = readConfig();
+  // Validate Side A on its own (Side B is the opponent's, decided later).
+  if (typeof validateConfig === 'function' && !validateConfig(config.A)) return;
+  const url = encodeMatchURL(config, false);
+  copyToClipboard(url).then(() => {
+    showToast('⚔ Challenge link copied! Send it to your opponent.');
+    setMpHint(`<strong>Challenge ready.</strong> Your Side A choices are baked into the link — send it to a friend. When they accept, they'll send back a link that lets you watch the same battle.`);
+  });
+}
+
+// ---- Init: detect state on page load and wire everything ----
+function initMultiplayer() {
+  const challengeBtn = document.getElementById('challenge-btn');
+  const startBtn = document.getElementById('start-btn');
+  const decoded = decodeMatchParams();
+
+  // State 1 — fresh setup (Player 1). Solo play unchanged.
+  if (!decoded) {
+    MP.active = false;
+    if (challengeBtn) challengeBtn.addEventListener('click', copyChallengeLink);
+    return;
+  }
+
+  // A challenge link is present → multiplayer mode.
+  MP.active = true;
+  MP.config = decoded;
+
+  forceTwoPlayer();
+  applyConfigToPanel('A', decoded.A);
+  setWorldFromDecoded(decoded.world);
+
+  if (decoded.B) {
+    // State 3 — full match link: both sides fixed, just run it.
+    MP.role = 'replay';
+    applyConfigToPanel('B', decoded.B);
+    lockPanel('A', 'Locked in');
+    lockPanel('B', 'Locked in');
+    lockWorld();
+    if (startBtn) startBtn.textContent = 'RUN MATCH';
+    setMpHint(`<strong>Match ready.</strong> Both civilizations and the world are locked. Press <strong>Run Match</strong> — you'll see the exact same outcome your opponent does.`);
+  } else {
+    // State 2 — challenge accepted: Side A locked, configure Side B.
+    MP.role = 'accepter';
+    lockPanel('A', 'Opponent locked in');
+    lockWorld();
+    if (startBtn) startBtn.textContent = 'ACCEPT & RUN';
+    setMpHint(`<strong>You've been challenged.</strong> Side A and the world are locked in by your opponent. Choose your <strong>Side B</strong>, then press <strong>Accept &amp; Run</strong> — the link auto-copies so you can send the result back.`);
+  }
+
+  if (decoded._repaired) {
+    showToast('Note: some options in this link were unavailable and reset to defaults.', 4200);
+  }
+
+  // No challenging from inside an existing match.
+  if (challengeBtn) challengeBtn.style.display = 'none';
+}

@@ -833,3 +833,66 @@ select:focus, input:focus {
   .pb-narrative { font-size: 13px; }
   #new-game-btn { padding: 12px 32px; font-size: 14px; letter-spacing: 3px; }
 }
+
+/* ============================================================
+   ASYNC MULTIPLAYER — lock badges, locked panels, toast
+   ============================================================ */
+.lock-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin: -6px 0 16px;
+  padding: 6px 11px;
+  background: rgba(212,175,55,0.12);
+  border: 1px solid var(--accent-dim);
+  border-radius: 6px;
+  color: var(--accent-lt);
+  font-family: var(--font-mono);
+  font-size: 11px; letter-spacing: 1px;
+  text-transform: uppercase; font-weight: 700;
+}
+.civ-config[data-side="A"] .lock-badge { background: rgba(74,144,226,0.14); border-color: var(--side-a); color: var(--side-a); }
+.civ-config[data-side="B"] .lock-badge { background: rgba(231,76,60,0.14); border-color: var(--side-b); color: var(--side-b); }
+
+/* Locked panels read as "set in stone" */
+.civ-config.locked select,
+.civ-config.locked input,
+.world-config select:disabled,
+.world-config input:disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
+}
+.civ-config.locked .hint { opacity: 0.88; }
+
+/* Hint line under the setup footer explaining the active multiplayer state */
+.mp-hint {
+  text-align: center;
+  margin: 14px auto 0;
+  max-width: 680px;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.5;
+  min-height: 18px;
+}
+.mp-hint strong { color: var(--accent-lt); }
+
+/* Copy-link confirmation toast */
+.toast {
+  position: fixed; left: 50%; bottom: 28px;
+  transform: translateX(-50%) translateY(20px);
+  background: rgba(14,17,26,0.97);
+  border: 1px solid var(--border-lt);
+  border-left: 3px solid var(--accent);
+  color: var(--text);
+  padding: 13px 20px;
+  border-radius: 8px;
+  font-size: 14px; font-weight: 600; letter-spacing: 0.4px;
+  box-shadow: 0 14px 40px rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+  opacity: 0; pointer-events: none;
+  z-index: 10000; max-width: 90vw; text-align: center;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+@media (max-width: 600px) {
+  .toast { bottom: 16px; font-size: 13px; padding: 11px 16px; }
+}

@@ -29,6 +29,7 @@ function init() {
   populateSelects();
   initOptionTooltips();
   initStatsSheet();
+  initMultiplayer();
 
   document.getElementById('start-btn').addEventListener('click', startSim);
   document.getElementById('back-to-setup').addEventListener('click', backToSetup);
@@ -65,6 +66,19 @@ function startSim() {
   const players = config.world.players || 2;
   if (!validateConfig(config.A) || !validateConfig(config.B)) return;
   if (players === 3 && !validateConfig(config.C)) return;
+
+  // Async multiplayer: derive a shared seed from the combined config so both
+  // players, holding the identical config, produce a bit-for-bit identical run.
+  if (typeof MP !== 'undefined' && MP.active) {
+    config.world.seed = hashConfigToSeed(config);
+    if (MP.role === 'accepter') {
+      // Rewrite the URL to encode BOTH sides and hand it back to the challenger.
+      const fullUrl = encodeMatchURL(config, true);
+      history.replaceState(null, '', fullUrl);
+      copyToClipboard(fullUrl).then(() =>
+        showToast('🔗 Match link copied — send it back so your challenger sees the same battle.', 4200));
+    }
+  }
 
   Game.rng = new RNG(config.world.seed);
   const size = MAP_SIZES[config.world.mapSize];

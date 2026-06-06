@@ -1,6 +1,6 @@
 # AEON — 1v1 / 1v1v1 Civilization Simulator
 
-A civilization sandbox simulator spanning anywhere from 500 to 10,000 years. Choose **two players (a duel) or three (a free-for-all)**, pick race, focus, weapon, government, and biome for each side, choose how long history runs, press play, and watch civilizations rise (or collapse) on a split-biome map. At the end of the run they fight a final battle for the world — and the aftermath screen shows exactly how that battle's power was calculated, factor by factor, for every side.
+A civilization sandbox simulator spanning anywhere from 500 to 10,000 years. Choose **two players (a duel) or three (a free-for-all)**, pick race, focus, weapon, government, and biome for each side, choose how long history runs, press play, and watch civilizations rise (or collapse) on a split-biome map. At the end of the run they fight a final battle for the world — and the aftermath screen shows exactly how that battle's power was calculated, factor by factor, for every side. You can also **challenge a friend to an async 1v1** by sharing a link — no server required (see Phase 7).
 
 ## Running
 
@@ -73,6 +73,12 @@ aeon/
 - Map legend, vignette, animated water, and a timeline that auto-scales to the run length
 - Display/UI/mono font system, refined palette with gradients and glows, morale/stability bars, custom scrollbars
 - Incremental owned-tile caching keeps even a 10,000-year run on the huge map under ~2 seconds when skipped to the end
+
+**Phase 7 (Async 1v1 Multiplayer — no server)**
+- **"⚔ Challenge a Friend"** on the setup screen. Player 1 configures Side A, clicks it, and a shareable link encoding their choices + world settings is copied to the clipboard (with a confirmation toast)
+- Player 2 opens the link → **Side A and the world settings load locked/read-only** ("🔒 Opponent locked in"), they pick Side B and press **Accept & Run**. The link is then rewritten to encode *both* sides and auto-copied so it can be sent back
+- Player 1 opens that full link → both sides lock and the button becomes **Run Match** — both players watch the **identical** outcome
+- Works on plain static hosting (Netlify, GitHub Pages, `file://`). No backend: the seed is **derived from a hash of the combined config**, so identical configs produce a bit-for-bit identical run for both players. Long civ names, unicode, and `#hex` colours are encoded losslessly via `URLSearchParams`. The simulation engine is untouched — only which integer seeds the RNG
 
 **Phase 6 (Three-Player Free-for-All)**
 - A **2-player / 3-player toggle** on the setup screen. Pick "3 · Free-for-all" and a third side (Side C) appears with its own race/focus/government/weapon/biome pickers

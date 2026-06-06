@@ -162,8 +162,10 @@
 
     <div class="setup-footer">
       <button id="open-sheet" class="secondary-btn" type="button">📊 Compare All Options</button>
+      <button id="challenge-btn" class="secondary-btn" type="button">⚔ Challenge a Friend</button>
       <button id="start-btn">BEGIN SIMULATION</button>
     </div>
+    <p class="mp-hint" id="mp-hint"></p>
   </div>
 
   <!-- ============ STATS SHEET MODAL ============ -->
@@ -329,6 +331,9 @@
       <button id="new-game-btn">NEW SIMULATION</button>
     </div>
   </div>
+
+  <!-- Copy-link confirmation toast -->
+  <div id="toast" class="toast"></div>
 
   <!-- Scripts: load order matters -->
   <script src="js/data.js"></script>
