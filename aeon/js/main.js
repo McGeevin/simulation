@@ -42,6 +42,10 @@ function init() {
   document.getElementById('randomize-seed').addEventListener('click', () => {
     document.getElementById('world-seed').value = Math.floor(Math.random() * 999999);
   });
+  const rndBtn = document.getElementById('randomize-btn');
+  if (rndBtn) rndBtn.addEventListener('click', randomizeTeams);
+
+  initMobile();
 
   document.querySelectorAll('.speed-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -124,6 +128,7 @@ function startSim() {
   document.getElementById('skip-to-battle').textContent = `⏭ Skip to Y${Game.maxYear}`;
 
   showScreen('sim-screen');
+  resetMobileNav(!!Game.civC);
 
   requestAnimationFrame(() => {
     Game.renderer = new Renderer(document.getElementById('map-canvas'), Game.map);

@@ -902,4 +902,179 @@ function initMultiplayer() {
 
   // No challenging from inside an existing match.
   if (challengeBtn) challengeBtn.style.display = 'none';
+
+  // Randomize button hidden in multiplayer — choices are determined by the match config.
+  const rndBtn = document.getElementById('randomize-btn');
+  if (rndBtn) rndBtn.style.display = 'none';
+}
+
+// ============================================================
+// RANDOMIZE TEAMS
+// Picks a functionally valid random build for each side.
+// ============================================================
+function randomizeTeams() {
+  const sides = playerCount() === 3 ? ['A', 'B', 'C'] : ['A', 'B'];
+  for (const side of sides) {
+    const panel = document.querySelector(`.civ-config[data-side="${side}"]`);
+    if (!panel) continue;
+
+    const raceKeys = Object.keys(RACES);
+    const race = raceKeys[Math.floor(Math.random() * raceKeys.length)];
+
+    const validFocuses = Object.keys(FOCUSES).filter(fk => {
+      const f = FOCUSES[fk];
+      return !f.requires || f.requires.includes(race);
+    });
+    const focus = validFocuses[Math.floor(Math.random() * validFocuses.length)];
+
+    const validGovs = Object.keys(GOVERNMENTS).filter(gk => {
+      const g = GOVERNMENTS[gk];
+      return !g.requires || !g.requires.race || g.requires.race.includes(race);
+    });
+    const gov = validGovs[Math.floor(Math.random() * validGovs.length)];
+
+    const validWeapons = Object.keys(WEAPONS).filter(wk => {
+      const w = WEAPONS[wk];
+      if (!w.requires) return true;
+      if (w.requires.race && !w.requires.race.includes(race)) return false;
+      if (w.requires.focus && !w.requires.focus.includes(focus)) return false;
+      if (w.requires.focusOr && !w.requires.focusOr.includes(focus)) return false;
+      return true;
+    });
+    const weapon = validWeapons[Math.floor(Math.random() * validWeapons.length)];
+
+    const biomeKeys = Object.keys(BIOMES);
+    const biome = biomeKeys[Math.floor(Math.random() * biomeKeys.length)];
+
+    const setF = (f, v) => { const el = panel.querySelector(`[data-field="${f}"]`); if (el) el.value = v; };
+    setF('race', race);
+    setF('focus', focus);
+    setF('government', gov);
+    setF('weapon', weapon);
+    setF('biome', biome);
+    updateHints(panel);
+  }
+}
+
+// ============================================================
+// MOBILE APP-LIKE EXPERIENCE
+// Detected by touch capability + viewport width.
+// Adds body.mobile class; all new CSS is scoped to that class.
+// ============================================================
+function detectMobile() {
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+    || (window.innerWidth <= 768 && ('ontouchstart' in window || navigator.maxTouchPoints > 0));
+}
+
+function initMobile() {
+  if (!detectMobile()) return;
+  document.body.classList.add('mobile');
+  initMobileSetupTabs();
+  initMobileSimNav();
+}
+
+function initMobileSetupTabs() {
+  const header = document.querySelector('.setup-header');
+  if (!header) return;
+
+  const tabs = document.createElement('div');
+  tabs.className = 'mobile-setup-tabs';
+  const defs = [
+    { target: 'a', label: 'SIDE A' },
+    { target: 'world', label: 'WORLD' },
+    { target: 'b', label: 'SIDE B' },
+  ];
+  for (const d of defs) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'mst-btn';
+    btn.dataset.target = d.target;
+    btn.textContent = d.label;
+    tabs.appendChild(btn);
+  }
+  header.insertAdjacentElement('afterend', tabs);
+
+  const activateTab = (target) => {
+    tabs.querySelectorAll('.mst-btn').forEach(b => b.classList.toggle('active', b.dataset.target === target));
+    document.querySelectorAll('.civ-config, .world-config').forEach(el => {
+      const elT = el.classList.contains('world-config') ? 'world' : (el.dataset.side || '').toLowerCase();
+      el.classList.toggle('mob-tab-active', elT === target);
+    });
+  };
+  activateTab('a');
+
+  tabs.addEventListener('click', e => {
+    const btn = e.target.closest('.mst-btn');
+    if (btn) activateTab(btn.dataset.target);
+  });
+
+  // Add / remove Side C tab when player count changes
+  document.getElementById('player-count')?.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-players]');
+    if (!btn) return;
+    const three = btn.dataset.players === '3';
+    let cTab = tabs.querySelector('[data-target="c"]');
+    if (three && !cTab) {
+      const nb = document.createElement('button');
+      nb.type = 'button';
+      nb.className = 'mst-btn';
+      nb.dataset.target = 'c';
+      nb.textContent = 'SIDE C';
+      tabs.appendChild(nb);
+    } else if (!three && cTab) {
+      const wasActive = cTab.classList.contains('active');
+      cTab.remove();
+      document.querySelector('.civ-config[data-side="C"]')?.classList.remove('mob-tab-active');
+      if (wasActive) activateTab('a');
+    }
+  });
+}
+
+function initMobileSimNav() {
+  const simScreen = document.getElementById('sim-screen');
+  if (!simScreen) return;
+
+  const nav = document.createElement('nav');
+  nav.className = 'mobile-bottom-nav';
+  nav.id = 'mobile-bottom-nav';
+  nav.innerHTML = `
+    <button class="mbn-btn active" data-panel="map">
+      <span class="mbn-icon">◉</span>
+      <span class="mbn-label">MAP</span>
+    </button>
+    <button class="mbn-btn" data-panel="A">
+      <span class="mbn-icon">A</span>
+      <span class="mbn-label">SIDE A</span>
+    </button>
+    <button class="mbn-btn" data-panel="B">
+      <span class="mbn-icon">B</span>
+      <span class="mbn-label">SIDE B</span>
+    </button>
+    <button class="mbn-btn mob-nav-c" data-panel="C" style="display:none">
+      <span class="mbn-icon">C</span>
+      <span class="mbn-label">SIDE C</span>
+    </button>`;
+  simScreen.appendChild(nav);
+
+  nav.addEventListener('click', e => {
+    const btn = e.target.closest('.mbn-btn');
+    if (btn) activateMobilePanel(btn.dataset.panel);
+  });
+}
+
+function activateMobilePanel(panel) {
+  const nav = document.getElementById('mobile-bottom-nav');
+  if (!nav) return;
+  nav.querySelectorAll('.mbn-btn').forEach(b => b.classList.toggle('active', b.dataset.panel === panel));
+  ['A', 'B', 'C'].forEach(s => {
+    const el = document.getElementById(`panel-${s}`);
+    if (el) el.classList.toggle('mob-active', s === panel);
+  });
+}
+
+function resetMobileNav(threePlayer) {
+  if (!document.body.classList.contains('mobile')) return;
+  activateMobilePanel('map');
+  const cBtn = document.querySelector('.mob-nav-c');
+  if (cBtn) cBtn.style.display = threePlayer ? '' : 'none';
 }
