@@ -74,6 +74,13 @@ aeon/
 - Display/UI/mono font system, refined palette with gradients and glows, morale/stability bars, custom scrollbars
 - Incremental owned-tile caching keeps even a 10,000-year run on the huge map under ~2 seconds when skipped to the end
 
+**Phase 8 (Mobile / Phone Support)**
+- On phones (detected by touch + user-agent) the app switches to an **app-like layout** — no more pinch-and-scroll. A `body.mobile` class gates every rule, so the desktop layout is completely untouched
+- **Setup** becomes a tabbed flow (SIDE A · WORLD · SIDE B, plus SIDE C in free-for-all) — one panel at a time, no long scroll
+- **Portrait sim:** compact stat strips (population, army, territory) are pinned above a full-width map and update live, so you always see the numbers. A bottom nav bar expands any side into a full detail sheet (all resources, morale/stability bars, event log)
+- **Landscape sim (rotate the phone sideways):** a desktop-style layout — the side panels flank the map with *all* stats visible at once, and the bottom nav hides. Rotating re-fits the canvas automatically
+- A **🎲 Randomize** button (solo only) rolls a functionally valid race/focus/government/weapon/biome for each side, respecting every requirement constraint
+
 **Phase 7 (Async 1v1 Multiplayer — no server)**
 - **"⚔ Challenge a Friend"** on the setup screen. Player 1 configures Side A, clicks it, and a shareable link encoding their choices + world settings is copied to the clipboard (with a confirmation toast)
 - Player 2 opens the link → **Side A and the world settings load locked/read-only** ("🔒 Opponent locked in"), they pick Side B and press **Accept & Run**. The link is then rewritten to encode *both* sides and auto-copied so it can be sent back

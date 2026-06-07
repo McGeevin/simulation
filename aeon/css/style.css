@@ -722,8 +722,10 @@ select:focus, input:focus {
 }
 
 /* ============================================================
-   MOBILE — SIM SCREEN  (<= 768px)
-   Panels collapse into compact side-by-side strips above the map.
+   MOBILE — SIM HEADER  (<= 768px)
+   Header tweaks shared by phones and narrow desktop windows.
+   The full sim layout (strips / landscape columns / bottom nav)
+   lives in the body.mobile blocks further down.
    ============================================================ */
 @media (max-width: 768px) {
   /* Header: wrap to two rows if needed */
@@ -746,67 +748,15 @@ select:focus, input:focus {
     font-size: 12px;
   }
   #back-to-setup { padding: 9px 12px; min-height: 44px; }
-
-  /* Body: panels side-by-side on top, map below */
-  .sim-body { flex-wrap: wrap; }
-
-  .civ-panel {
-    width: 50% !important;
-    flex: 0 0 50%;
-    height: 78px;
-    overflow: hidden;
-    border-right: none !important;
-    border-left: none !important;
-    border-bottom: 1px solid var(--border);
-    flex-direction: row;
-  }
-  .sim-body.three .civ-panel {
-    width: 33.33% !important;
-    flex: 0 0 33.33%;
-  }
-
-  /* Panel A gets right border; B gets left border; C gets left border */
-  #panel-A { border-right: 1px solid var(--border) !important; }
-  #panel-B { border-left: 1px solid var(--border) !important; }
-  #panel-C { border-left: 1px solid var(--border) !important; }
-
-  .civ-header {
-    flex: 0 0 110px;
-    padding: 6px 8px;
-    border-bottom: none;
-    border-right: 1px solid var(--border);
-  }
-  .civ-name { font-size: 13px; }
-  .civ-subtitle { display: none; }
-
-  .stat-block {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    padding: 4px 8px;
-    border-bottom: none;
-  }
-  .stat { padding: 1px 0; font-size: 11px; }
-  /* Hide stats beyond the first three (pop, army, territory) */
-  .stat-block .stat:nth-child(n+4) { display: none; }
-  .stat-divider { border-top: none !important; margin-top: 0; padding-top: 0; }
-
-  .bar-block  { display: none; }
-  .events-log { display: none; }
-
-  /* Map fills its own row */
-  .map-container { width: 100%; flex: 0 0 100%; order: 4; min-height: 200px; }
-
-  /* Slim timeline on mobile */
-  .timeline-footer { height: 38px; }
+  .map-legend { font-size: 11px; padding: 6px 8px; }
 }
 
-/* Very small phones: hide panels entirely, rely on the map legend only */
-@media (max-width: 480px) {
-  .civ-panel { display: none !important; }
-  .map-legend { font-size: 11px; padding: 6px 8px; }
-  .timeline-footer { height: 30px; }
+/* In landscape on a phone the header must stay tiny to leave room for the map */
+@media (orientation: landscape) {
+  body.mobile .sim-header { height: auto; padding: 4px 8px; }
+  body.mobile .year-display { font-size: 14px; margin-bottom: 2px; }
+  body.mobile .speed-btn, body.mobile #skip-to-battle { min-height: 36px; padding: 6px 9px; }
+  body.mobile #back-to-setup { min-height: 36px; }
 }
 
 /* ============================================================
@@ -983,93 +933,15 @@ body.mobile .setup-footer {
 }
 body.mobile .mp-hint { margin: 0 0 10px; font-size: 12px; }
 
-/* ---- Sim: full-screen map + panel overlays + bottom nav ---- */
-body.mobile .sim-body {
-  flex-wrap: nowrap !important;
-  flex-direction: column;
-  padding-bottom: 56px;
-}
-body.mobile .map-container {
-  flex: 1 !important;
-  width: 100% !important;
-  order: 0;
-  min-height: 0;
-}
-body.mobile .civ-panel {
-  display: none !important;
-  height: auto !important;
-  width: auto !important;
-  flex: none !important;
-  position: static !important;
-}
-body.mobile .civ-panel.mob-active {
-  display: flex !important;
-  flex-direction: column !important;
-  position: fixed !important;
-  bottom: 56px !important;
-  left: 0 !important;
-  right: 0 !important;
-  height: 56vh !important;
-  width: 100% !important;
-  overflow-y: auto !important;
-  -webkit-overflow-scrolling: touch;
-  background: rgba(10, 12, 18, 0.97) !important;
-  border-top: 2px solid var(--border-lt) !important;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  z-index: 200;
-  padding: 14px 16px 8px !important;
-  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.7);
-}
-body.mobile .civ-panel.mob-active .civ-header {
-  flex: none !important;
-  flex-direction: column !important;
-  border-bottom: 1px solid var(--border);
-  border-right: none !important;
-  padding: 0 0 10px 0;
-  margin-bottom: 12px;
-  width: auto !important;
-  flex-basis: auto !important;
-}
-body.mobile .civ-panel.mob-active .civ-name   { font-size: 17px !important; }
-body.mobile .civ-panel.mob-active .civ-subtitle { display: block !important; font-size: 12px; }
-body.mobile .civ-panel.mob-active .stat-block {
-  flex: none;
-  display: grid !important;
-  grid-template-columns: 1fr 1fr;
-  gap: 2px 16px;
-  padding: 0 !important;
-}
-body.mobile .civ-panel.mob-active .stat { font-size: 13px !important; padding: 3px 0 !important; }
-body.mobile .civ-panel.mob-active .stat-block .stat:nth-child(n+4) { display: flex !important; }
-body.mobile .civ-panel.mob-active .stat-divider {
-  border-top: 1px solid var(--border) !important;
-  margin-top: 6px !important;
-  padding-top: 6px !important;
-  grid-column: 1 / -1;
-}
-body.mobile .civ-panel.mob-active .bar-block  { display: block !important; margin-top: 12px; }
-body.mobile .civ-panel.mob-active .events-log {
-  display: block !important;
-  overflow-y: auto;
-  margin-top: 10px;
-  max-height: 120px;
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
-}
-
-body.mobile .timeline-footer { display: none !important; }
-
-/* ---- Bottom navigation bar ---- */
+/* ---- Bottom navigation bar (base look; visibility set per-orientation) ---- */
 .mobile-bottom-nav { display: none; }
 
 body.mobile .mobile-bottom-nav {
-  display: flex !important;
   position: fixed !important;
   bottom: 0 !important;
   left: 0 !important;
   right: 0 !important;
-  height: 56px;
+  height: 54px;
   background: rgba(14, 17, 26, 0.97);
   border-top: 1px solid var(--border-lt);
   z-index: 300;
@@ -1098,10 +970,185 @@ body.mobile .mbn-btn {
   -webkit-tap-highlight-color: transparent;
 }
 body.mobile .mbn-icon { font-size: 15px; line-height: 1; }
-body.mobile .mbn-btn.active                     { color: var(--accent);  border-top-color: var(--accent);  }
-body.mobile .mbn-btn[data-panel="A"].active     { color: var(--side-a);  border-top-color: var(--side-a);  }
-body.mobile .mbn-btn[data-panel="B"].active     { color: var(--side-b);  border-top-color: var(--side-b);  }
-body.mobile .mbn-btn[data-panel="C"].active     { color: var(--side-c);  border-top-color: var(--side-c);  }
+body.mobile .mbn-btn.active                 { color: var(--accent);  border-top-color: var(--accent);  }
+body.mobile .mbn-btn[data-panel="A"].active { color: var(--side-a);  border-top-color: var(--side-a);  }
+body.mobile .mbn-btn[data-panel="B"].active { color: var(--side-b);  border-top-color: var(--side-b);  }
+body.mobile .mbn-btn[data-panel="C"].active { color: var(--side-c);  border-top-color: var(--side-c);  }
+
+body.mobile .timeline-footer { display: none !important; }
+
+/* ============================================================
+   MOBILE SIM — PORTRAIT
+   Compact stat strips pinned above the map (always visible), with
+   a bottom-nav that expands any side into a full detail overlay.
+   ============================================================ */
+@media (orientation: portrait) {
+  body.mobile .sim-body {
+    flex-direction: column !important;
+    flex-wrap: nowrap !important;
+    padding-bottom: 54px;     /* clear the fixed bottom nav */
+  }
+
+  /* Always-visible compact strips: name + the three headline stats */
+  body.mobile .civ-panel {
+    display: flex !important;
+    flex-direction: row !important;
+    position: static !important;
+    width: 100% !important;
+    flex: 0 0 auto !important;
+    height: 58px;
+    order: 0;
+    overflow: hidden;
+    border-right: none !important;
+    border-left: none !important;
+    border-bottom: 1px solid var(--border) !important;
+  }
+  body.mobile .civ-panel .civ-header {
+    flex: 0 0 104px;
+    padding: 6px 8px;
+    border-bottom: none;
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; justify-content: center;
+  }
+  body.mobile .civ-panel .civ-name { font-size: 13px; }
+  body.mobile .civ-panel .civ-subtitle { display: none; }
+  body.mobile .civ-panel .stat-block {
+    flex: 1;
+    display: flex !important;
+    flex-direction: column;
+    justify-content: center;
+    padding: 4px 10px;
+    border-bottom: none;
+    gap: 0;
+  }
+  body.mobile .civ-panel .stat { font-size: 11px; padding: 1px 0; grid-column: auto; }
+  /* strips show only pop / army / territory */
+  body.mobile .civ-panel .stat-block .stat:nth-child(n+4) { display: none; }
+  body.mobile .civ-panel .stat-divider { border-top: none !important; margin: 0; padding: 0; }
+  body.mobile .civ-panel .bar-block,
+  body.mobile .civ-panel .events-log { display: none; }
+
+  /* Map fills the rest, below the strips */
+  body.mobile .map-container {
+    order: 5;
+    flex: 1 1 auto !important;
+    width: 100% !important;
+    min-height: 0;
+  }
+
+  /* Tap a nav button → that side expands into a full detail overlay */
+  body.mobile .civ-panel.mob-active {
+    position: fixed !important;
+    top: auto !important;
+    bottom: 54px !important;
+    left: 0 !important;
+    right: 0 !important;
+    height: 62vh !important;
+    flex-direction: column !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    background: rgba(10, 12, 18, 0.98) !important;
+    border-top: 2px solid var(--border-lt) !important;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    z-index: 200;
+    padding: 14px 16px 8px !important;
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.7);
+  }
+  body.mobile .civ-panel.mob-active .civ-header {
+    flex: none !important;
+    flex-direction: column !important;
+    border-bottom: 1px solid var(--border);
+    border-right: none !important;
+    padding: 0 0 10px 0;
+    margin-bottom: 12px;
+  }
+  body.mobile .civ-panel.mob-active .civ-name { font-size: 18px; }
+  body.mobile .civ-panel.mob-active .civ-subtitle { display: block !important; font-size: 12px; }
+  body.mobile .civ-panel.mob-active .stat-block {
+    flex: none;
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px 16px;
+    padding: 0 !important;
+  }
+  body.mobile .civ-panel.mob-active .stat { font-size: 13px; padding: 3px 0; }
+  body.mobile .civ-panel.mob-active .stat-block .stat:nth-child(n+4) { display: flex; }
+  body.mobile .civ-panel.mob-active .stat-divider {
+    border-top: 1px solid var(--border) !important;
+    margin-top: 6px !important;
+    padding-top: 6px !important;
+    grid-column: 1 / -1;
+  }
+  body.mobile .civ-panel.mob-active .bar-block { display: block; margin-top: 12px; }
+  body.mobile .civ-panel.mob-active .events-log {
+    display: block;
+    overflow-y: auto;
+    margin-top: 10px;
+    max-height: 130px;
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+  }
+
+  body.mobile .mobile-bottom-nav { display: flex !important; }
+}
+
+/* ============================================================
+   MOBILE SIM — LANDSCAPE  (rotate the phone sideways)
+   Desktop-style layout: side panels flank the map, all stats
+   visible at once. No bottom nav needed.
+   ============================================================ */
+@media (orientation: landscape) {
+  body.mobile .sim-body {
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    padding-bottom: 0;
+  }
+  body.mobile .civ-panel {
+    display: flex !important;
+    flex-direction: column !important;
+    position: static !important;
+    width: 144px !important;
+    flex: 0 0 144px !important;
+    height: auto !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    border-right: none;
+    border-left: none;
+  }
+  body.mobile .map-container {
+    flex: 1 1 auto !important;
+    width: auto !important;
+    order: 0;
+    min-height: 0;
+  }
+  body.mobile .civ-panel .civ-header {
+    flex: none;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 8px 10px;
+  }
+  body.mobile .civ-panel .civ-name { font-size: 14px; }
+  body.mobile .civ-panel .civ-subtitle { display: block; font-size: 10px; }
+  body.mobile .civ-panel .stat-block {
+    flex: none;
+    display: flex !important;
+    flex-direction: column;
+    padding: 6px 10px;
+  }
+  body.mobile .civ-panel .stat { font-size: 11px; padding: 1px 0; }
+  body.mobile .civ-panel .stat-block .stat { display: flex; }   /* show all stats */
+  body.mobile .civ-panel .stat-divider {
+    border-top: 1px solid var(--border) !important;
+    margin-top: 5px; padding-top: 5px;
+  }
+  body.mobile .civ-panel .bar-block { display: block; padding: 8px 10px; }
+  body.mobile .civ-panel .events-log { display: block; flex: 1; min-height: 60px; }
+
+  /* No expand overlay or bottom nav in landscape — everything's already shown */
+  body.mobile .civ-panel.mob-active { position: static !important; height: auto !important; }
+  body.mobile .mobile-bottom-nav { display: none !important; }
+}
 
 /* Aftermath: scrollable on mobile */
 body.mobile #aftermath-screen {

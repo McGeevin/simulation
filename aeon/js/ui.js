@@ -971,6 +971,24 @@ function initMobile() {
   document.body.classList.add('mobile');
   initMobileSetupTabs();
   initMobileSimNav();
+
+  // On rotation: collapse any expanded panel back to the map view and refit
+  // the canvas to the new dimensions (resize() re-bakes the terrain cache).
+  const onRotate = () => {
+    activateMobilePanel('map');
+    setTimeout(() => {
+      if (typeof Game !== 'undefined') {
+        if (Game.renderer) Game.renderer.resize();
+        if (Game.timeline) Game.timeline.resize();
+      }
+    }, 280);
+  };
+  window.addEventListener('orientationchange', onRotate);
+  try {
+    const mq = window.matchMedia && window.matchMedia('(orientation: portrait)');
+    if (mq && mq.addEventListener) mq.addEventListener('change', onRotate);
+    else if (mq && mq.addListener) mq.addListener(onRotate);  // older Safari
+  } catch (e) { /* orientationchange covers it */ }
 }
 
 function initMobileSetupTabs() {
