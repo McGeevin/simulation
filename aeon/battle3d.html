@@ -84,6 +84,10 @@
   #controls select{background:var(--bg-light);color:var(--text);border:1px solid var(--border);
     border-radius:5px;padding:5px 7px;font-family:var(--font-ui);font-weight:600;font-size:13px;}
   #controls .tgl{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text);}
+  #controls .stp{background:var(--bg-light);color:var(--text);border:1px solid var(--border);
+    border-radius:4px;width:26px;height:26px;cursor:pointer;font-size:15px;line-height:1;}
+  #controls .stp:hover{background:var(--bg-lift,#262c3c);border-color:var(--accent);}
+  #controls .ageval{font-family:var(--font-mono);min-width:20px;text-align:center;color:var(--accent-lt);}
   #replay{font-family:var(--font-display);font-weight:700;letter-spacing:3px;cursor:pointer;
     background:linear-gradient(180deg,var(--accent-lt),var(--accent));color:#1a1407;border:none;
     padding:11px 22px;border-radius:6px;font-size:14px;box-shadow:0 6px 18px rgba(212,175,55,.3);}
@@ -135,8 +139,14 @@
 
 <div id="controls">
   <div class="row">
-    <label for="biomeSel">Biome</label>
-    <select id="biomeSel"></select>
+    <label>A biome</label><select id="biomeSelA"></select>
+    <label>B biome</label><select id="biomeSelB"></select>
+  </div>
+  <div class="row">
+    <label>A age</label>
+    <button class="stp" data-age="A" data-d="-1">−</button><span class="ageval" id="ageA">3</span><button class="stp" data-age="A" data-d="1">+</button>
+    <label>B age</label>
+    <button class="stp" data-age="B" data-d="-1">−</button><span class="ageval" id="ageB">5</span><button class="stp" data-age="B" data-d="1">+</button>
   </div>
   <div class="row">
     <span class="tgl"><input type="checkbox" id="wA" checked /> A weapon</span>
@@ -265,16 +275,16 @@
    *     winnerCasualtyPct, loserCasualtyPct }
    *
    * Each civ carries: army(int), color(hex), name, side('A'|'B'|'C'),
-   *                   focus, race, weapon, weaponUnlocked.
+   *                   focus, race, weapon, weaponUnlocked, techAge(0-11), biome.
    * (resolveBattle3() returns a `threeWay:true` variant with an `entries[]`
    *  array — see the note in Battle3D.start() for the 1v1v1 hook.)
    * ------------------------------------------------------------------------ */
   const civA = { name:'Aurelian Pact', color:'#4a90e2', side:'A',
                  race:'humans', focus:'science', weapon:'Trebuchet Corps',
-                 weaponUnlocked:true,  army:14200 };
+                 weaponUnlocked:true,  army:14200, techAge:3, biome:'forest' };
   const civB = { name:'Ironhold Clans', color:'#e74c3c', side:'B',
                  race:'orcs', focus:'military', weapon:'Iron Legion',
-                 weaponUnlocked:false, army:11800 };
+                 weaponUnlocked:false, army:11800, techAge:5, biome:'mountain' };
 
   // Stand-in for resolveBattle(): whoever has the larger (army) here "wins".
   // The real engine factors power/roll/breakdowns — we only need winner/loser
@@ -329,8 +339,8 @@
     scene.fogColor = hexC3('#0a0c12');
     scene.fogStart = 26; scene.fogEnd = 60;
 
-    // ---- Camera: ArcRotate pulled back to frame both armies (~20-unit field)
-    camera = new B.ArcRotateCamera('cam', -Math.PI/2, 1.02, 30, new B.Vector3(0, 1.2, 0), scene);
+    // ---- Camera: ArcRotate pulled back to frame the wider 40×20 field
+    camera = new B.ArcRotateCamera('cam', -Math.PI/2, 1.02, 28, new B.Vector3(0, 1.2, 0), scene);
     camera.attachControl($('renderCanvas'), true);
     camera.lowerRadiusLimit = 12;
     camera.upperRadiusLimit = 64;
@@ -372,7 +382,8 @@
     om.disableLighting = true;
     mageOrbSrc.material = om; mageOrbSrc.isVisible = false; mageOrbSrc.isPickable = false;
 
-    buildGround(currentBiome);
+    // UPGRADE 3: terrain (per-side biomes) is built in startBattle3D once the
+    // civs (and therefore civ.biome) are known.
   }
 
   // 64×64 radial-alpha sprite, generated in-code so we ship zero image assets.
@@ -388,56 +399,221 @@
     return dt;
   }
 
-  /* ----- Ground: 20×20 GroundMesh tinted by the biome palette --------------
-   * Requirement #2: a GroundMesh whose colour matches AEON's biome system.
-   * We paint a DynamicTexture that re-creates the 2D map look — a base/alt
-   * chequer plus scattered "feature" speckles (same three colours render.js
-   * uses per biome) — which is the procedural-texture route the brief asked for.
-   * (A vertex-colour route is noted at the bottom of this function.)
-   * ----------------------------------------------------------------------- */
-  function buildGround(biomeKey) {
-    currentBiome = BIOME_COLORS[biomeKey] ? biomeKey : 'forest';
-    const pal = BIOME_COLORS[currentBiome];                 // AEON_DATA_HOOK: biome → colours
+  /* ========================================================================
+   *  UPGRADE 3 — BIOME TERRAIN
+   *  A 40×20 field split into two 20×20 GroundMesh halves at x=0. Left half =
+   *  Side A biome, right half = Side B biome (AEON_DATA_HOOK: civ.biome). Each
+   *  half gets per-biome vertex height + vertex colours, a colour blend across
+   *  the contested border, instanced decorations (capped at 200), and EXP2 fog
+   *  blending the two biome colours.
+   * ====================================================================== */
+  let terrain = null;          // { grounds, decoSrc, deco, mats, ps, anims, … }
+  const TERRAIN_DECO_CAP = 200;
 
-    if (ground) { ground.dispose(); groundMat && groundMat.dispose(); }
-
-    ground = B.MeshBuilder.CreateGround('ground',
-      { width:20, height:20, subdivisions:24 }, scene);
-    ground.receiveShadows = true;
-    ground.position.y = 0;
-
-    groundMat = new B.StandardMaterial('groundMat', scene);
-    groundMat.diffuseTexture = paintBiomeTexture(pal);
-    groundMat.specularColor = new B.Color3(0.04, 0.04, 0.05);   // matte earth
-    ground.material = groundMat;
-
-    ground.freezeWorldMatrix();   // static — never moves, so skip its matrix recompute
-    groundMat.freeze();
-
-    // VERTEX-COLOUR ALTERNATIVE (if you'd rather skip the texture):
-    //   ground.useVertexColors = true;
-    //   const c = ground.getVerticesData(B.VertexBuffer.PositionKind);
-    //   …write a Color4 per vertex lerping base↔alt by a noise(x,z)… then
-    //   ground.setVerticesData(B.VertexBuffer.ColorKind, colorArray);
+  function biomeHeight(biome, x, z) {
+    const n = Math.sin(x*1.3 + z*0.7) * Math.cos(z*1.1 - x*0.5);   // pseudo-noise ~[-1,1]
+    switch (biome) {
+      case 'mountain': return n * 0.8;
+      case 'volcanic': return n * 1.0;
+      case 'desert':   return Math.sin(x*0.6)*0.15 + Math.sin(z*0.55)*0.15;   // dunes ±0.3
+      case 'plains':   return n * 0.1;
+      case 'tundra':   return n * 0.06;
+      case 'swamp':
+      case 'coastal':  return 0;
+      case 'forest':
+      case 'jungle':
+      case 'taiga':    return n * 0.2;
+      case 'savanna':  return n * 0.12;
+      default:         return n * 0.15;
+    }
   }
 
-  function paintBiomeTexture(pal) {
-    const S = 1024, cells = 28, cs = S / cells;
-    const dt = new B.DynamicTexture('biomeTex', { width:S, height:S }, scene, true);
+  function buildTerrain(biomeA, biomeB) {                  // AEON_DATA_HOOK: civ.biome × 2
+    disposeTerrain();
+    terrain = { grounds:[], decoSrc:[], decoSrcCache:{}, deco:[], mats:[], ps:[], anims:[],
+                decoCount:0, texN:0, t:0 };
+    const palA = BIOME_COLORS[biomeA] || BIOME_COLORS.forest;
+    const palB = BIOME_COLORS[biomeB] || BIOME_COLORS.forest;
+    buildHalf(biomeA, palA, palB, -1);                    // Side A → left  (x -20..0)
+    buildHalf(biomeB, palB, palA, +1);                    // Side B → right (x  0..20)
+
+    // EXP2 fog blending the two biome colours
+    scene.fogMode = B.Scene.FOGMODE_EXP2;
+    scene.fogColor = mix(hexC3(palA.base), hexC3(palB.base), 0.5);
+    scene.fogDensity = 0.011;
+  }
+
+  function buildHalf(biome, pal, otherPal, side) {
+    const g = B.MeshBuilder.CreateGround('half'+side, { width:20, height:20, subdivisions:28 }, scene);
+    g.position.x = side * 10;
+    g.receiveShadows = true;
+
+    // manual vertex height + per-vertex biome colour (blended near the seam)
+    const positions = g.getVerticesData(B.VertexBuffer.PositionKind);
+    const indices = g.getIndices();
+    const normals = [];
+    const colors = new Array((positions.length/3) * 4);
+    const baseC = hexC3(pal.base), otherC = hexC3(otherPal.base);
+    for (let i = 0, c = 0; i < positions.length; i += 3, c += 4) {
+      const lx = positions[i], lz = positions[i+2], wx = lx + side*10;
+      positions[i+1] = biomeHeight(biome, wx, lz) * clamp(Math.abs(wx)/3, 0, 1);   // flat at border
+      const d = Math.abs(wx);
+      const col = d < 2.5 ? mix(baseC, otherC, (1 - d/2.5) * 0.5) : baseC;          // 5-wide blend strip
+      colors[c] = col.r; colors[c+1] = col.g; colors[c+2] = col.b; colors[c+3] = 1;
+    }
+    B.VertexData.ComputeNormals(positions, indices, normals);
+    g.setVerticesData(B.VertexBuffer.PositionKind, positions);
+    g.setVerticesData(B.VertexBuffer.NormalKind, normals);
+    g.setVerticesData(B.VertexBuffer.ColorKind, colors);
+    g.useVertexColors = true;
+    g.refreshBoundingInfo();
+
+    const mat = stdMat('halfMat'+side, new B.Color3(1,1,1));
+    mat.specularColor = new B.Color3(0.03, 0.03, 0.04);
+    const detail = makeDetailTexture(); detail.uScale = 5; detail.vScale = 5;
+    mat.diffuseTexture = detail;                          // grayscale grain × vertex colour
+    g.material = mat;
+
+    terrain.grounds.push(g); terrain.mats.push(mat);
+    if (biome === 'desert') terrain.anims.push({ type:'shimmer', tex:detail });   // heat-shimmer UV scroll
+    scatterBiome(biome, side, pal);
+  }
+
+  // shared grayscale grain texture (one per half so desert can scroll its own)
+  function makeDetailTexture() {
+    const S = 256;
+    const dt = new B.DynamicTexture('detail'+(terrain.texN++), { width:S, height:S }, scene, true);
     const ctx = dt.getContext();
-    ctx.fillStyle = pal.base; ctx.fillRect(0, 0, S, S);
-    for (let y = 0; y < cells; y++)
-      for (let x = 0; x < cells; x++)
-        if ((x + y) % 2 === 0) { ctx.fillStyle = pal.alt; ctx.fillRect(x*cs, y*cs, cs, cs); }
-    // feature speckle (trees/rocks/etc. abstracted to dots, like render.js)
-    for (let i = 0; i < 1500; i++) {
-      ctx.globalAlpha = 0.18 + Math.random()*0.30;
-      ctx.fillStyle = Math.random() < 0.55 ? pal.feature : pal.alt;
-      const s = 2 + Math.random()*6;
+    ctx.fillStyle = '#bcbcbc'; ctx.fillRect(0, 0, S, S);
+    for (let i = 0; i < 1300; i++) {
+      const v = 150 + Math.floor(Math.random()*90);
+      ctx.fillStyle = `rgb(${v},${v},${v})`;
+      const s = 1 + Math.random()*4;
       ctx.fillRect(Math.random()*S, Math.random()*S, s, s);
     }
-    ctx.globalAlpha = 1; dt.update();
+    dt.update(); dt.wrapU = dt.wrapV = B.Texture.WRAP_ADDRESSMODE;
     return dt;
+  }
+
+  // ---- instanced decoration scatter (PERFORMANCE: shared sources + 200 cap) ----
+  function getDecoSrc(key, build, castShadow) {
+    if (!terrain.decoSrcCache[key]) {
+      const m = build();
+      m.isVisible = false; m.isPickable = false; m.position.y = -50;
+      if (castShadow) shadowGen.addShadowCaster(m);
+      if (m.material) terrain.mats.push(m.material);
+      terrain.decoSrc.push(m);
+      terrain.decoSrcCache[key] = m;
+    }
+    return terrain.decoSrcCache[key];
+  }
+  function placeDeco(key, build, x, y, z, opts) {
+    if (terrain.decoCount >= TERRAIN_DECO_CAP) return null;   // hard cap on instances
+    const src = getDecoSrc(key, build, opts && opts.shadow);
+    const inst = src.createInstance('deco'+(terrain.decoCount++));
+    inst.position.set(x, y, z);
+    if (opts && opts.scale) inst.scaling.copyFrom(opts.scale);
+    if (opts && opts.rot)   inst.rotation.copyFrom(opts.rot);
+    terrain.deco.push(inst);
+    return inst;
+  }
+
+  function makeWater(pos, size, hex) {
+    const w = B.MeshBuilder.CreateGround('water', { width:size, height:size }, scene);
+    const m = stdMat('waterM', hexC3(hex));
+    m.alpha = 0.72; m.specularColor = new B.Color3(0.6,0.7,0.8); m.specularPower = 64;
+    w.material = m; w.position.copyFrom(pos);
+    terrain.deco.push(w); terrain.mats.push(m);
+    terrain.anims.push({ type:'water', mesh:w, baseY:pos.y, ph:Math.random()*6 });
+    return w;
+  }
+  function makeFlame(pos) {
+    const ps = new B.ParticleSystem('flame', 40, scene);
+    ps.particleTexture = particleTex; ps.emitter = pos.clone();
+    ps.minEmitBox = new B.Vector3(-0.15,0,-0.15); ps.maxEmitBox = new B.Vector3(0.15,0.1,0.15);
+    ps.color1 = col4('#ffb03a',0.9); ps.color2 = col4('#ff4a1a',0.9); ps.colorDead = col4('#5a1a0a',0);
+    ps.minSize = 0.2; ps.maxSize = 0.6; ps.minLifeTime = 0.3; ps.maxLifeTime = 0.7;
+    ps.emitRate = 40; ps.minEmitPower = 0.6; ps.maxEmitPower = 1.6; ps.gravity = new B.Vector3(0,2,0);
+    ps.blendMode = B.ParticleSystem.BLENDMODE_ADD; ps.start();
+    return ps;
+  }
+
+  function scatterBiome(biome, side, pal) {
+    const xc = side * 10, featC = hexC3(pal.feature);
+    const rndX = () => xc + (Math.random()*2-1)*9;
+    const rndZ = () => (Math.random()*2-1)*9;
+    const yAt  = (x,z) => biomeHeight(biome, x, z) * clamp(Math.abs(x)/3, 0, 1);
+    const jit  = () => new B.Vector3(0.9+Math.random()*0.4, 0.9+Math.random()*0.5, 0.9+Math.random()*0.4);
+    const trunkB  = () => { const m=B.MeshBuilder.CreateCylinder('trunkS',{height:0.8,diameter:0.28,tessellation:6},scene); m.material=stdMat('trunkM',hexC3('#5a3f29')); return m; };
+    const rockB   = (h) => () => { const m=B.MeshBuilder.CreateBox('rockS',{size:0.5},scene); m.material=stdMat('rockM',hexC3(h)); return m; };
+    const grassB  = (h) => () => { const m=B.MeshBuilder.CreateCylinder('grassS',{height:0.3,diameter:0.08,tessellation:4},scene); m.material=stdMat('grassM',hexC3(h)); return m; };
+
+    const tree = (key, canopyB, n) => { for (let i=0;i<n;i++){ const x=rndX(), z=rndZ(), ty=yAt(x,z);
+      placeDeco('trunk', trunkB, x, ty+0.4, z, { shadow:true });
+      placeDeco(key, canopyB, x, ty+0.95, z, { scale:jit() }); } };
+
+    switch (biome) {
+      case 'forest':
+        tree('canopy', () => { const m=B.MeshBuilder.CreateSphere('canS',{diameter:0.6,segments:6},scene); m.material=stdMat('canM',featC); return m; }, 15);
+        for (let i=0;i<6;i++){ const x=rndX(), z=rndZ(); placeDeco('stump', () => { const m=B.MeshBuilder.CreateCylinder('stumpS',{height:0.4,diameter:0.3,tessellation:6},scene); m.material=stdMat('stumpM',hexC3('#5a3f29')); return m; }, x, yAt(x,z)+0.2, z); }
+        break;
+      case 'jungle':
+        tree('jcan', () => { const m=B.MeshBuilder.CreateSphere('jcanS',{diameter:0.72,segments:6},scene); m.material=stdMat('jcanM',featC); return m; }, 25);
+        for (let i=0;i<8;i++){ const x=rndX(), z=rndZ(); placeDeco('vine', () => { const m=B.MeshBuilder.CreateCylinder('vineS',{height:1.4,diameter:0.06,tessellation:5},scene); m.material=stdMat('vineM',hexC3('#2f5a30')); return m; }, x, yAt(x,z)+0.9, z); }
+        break;
+      case 'mountain':
+        for (let i=0;i<14;i++){ const x=rndX(), z=rndZ(); placeDeco('rock', rockB('#6b6b6b'), x, yAt(x,z)+0.2, z, { shadow:true, rot:new B.Vector3(Math.random(),Math.random(),Math.random()), scale:jit() }); }
+        break;
+      case 'desert':
+        for (let i=0;i<3;i++){ const x=rndX(), z=rndZ(); placeDeco('rock', rockB('#a8893f'), x, yAt(x,z)+0.2, z, { rot:new B.Vector3(Math.random(),Math.random(),0) }); }
+        break;
+      case 'tundra':
+        for (let i=0;i<10;i++){ const x=rndX(), z=rndZ(); placeDeco('spike', () => { const m=B.MeshBuilder.CreateCylinder('spikeS',{height:0.5,diameterTop:0,diameterBottom:0.2,tessellation:6},scene); m.material=stdMat('spikeM',hexC3('#cfe2ee')); return m; }, x, yAt(x,z)+0.25, z); }
+        for (let i=0;i<6;i++){ const x=rndX(), z=rndZ(); placeDeco('crack', () => { const m=B.MeshBuilder.CreateBox('crackS',{width:1.2,height:0.02,depth:0.08},scene); m.material=stdMat('crackM',hexC3('#5a6b78')); return m; }, x, yAt(x,z)+0.02, z, { rot:new B.Vector3(0,Math.random()*3,0) }); }
+        break;
+      case 'plains':
+        for (let i=0;i<16;i++){ const x=rndX(), z=rndZ(); placeDeco('grass', grassB(pal.feature), x, yAt(x,z)+0.15, z); }
+        break;
+      case 'savanna':
+        for (let i=0;i<8;i++){ const x=rndX(), z=rndZ(), ty=yAt(x,z);
+          placeDeco('atrunk', () => { const m=B.MeshBuilder.CreateCylinder('atrunkS',{height:1.0,diameter:0.16,tessellation:6},scene); m.material=stdMat('atrunkM',hexC3('#7a5a32')); return m; }, x, ty+0.5, z, { shadow:true });
+          placeDeco('adisc',  () => { const m=B.MeshBuilder.CreateCylinder('adiscS',{height:0.1,diameter:1.3,tessellation:10},scene); m.material=stdMat('adiscM',hexC3('#7a8a4a')); return m; }, x, ty+1.05, z); }
+        for (let i=0;i<8;i++){ const x=rndX(), z=rndZ(); placeDeco('grass', grassB('#b0a060'), x, yAt(x,z)+0.15, z); }
+        break;
+      case 'volcanic':
+        for (let i=0;i<8;i++){ const x=rndX(), z=rndZ(); placeDeco('lava', () => { const m=B.MeshBuilder.CreateBox('lavaS',{width:1.4,height:0.03,depth:0.12},scene); m.material=stdMat('lavaM',hexC3('#ff5a1a'),{ emissive:hexC3('#ff5a1a'), disableLighting:true }); return m; }, x, yAt(x,z)+0.03, z, { rot:new B.Vector3(0,Math.random()*3,0) }); }
+        for (let i=0;i<3;i++){ const x=xc+(Math.random()*2-1)*7, z=(Math.random()*2-1)*7; terrain.ps.push(makeFlame(new B.Vector3(x,0.2,z))); }
+        break;
+      case 'swamp':
+        for (let i=0;i<5;i++){ const x=rndX(), z=rndZ(); makeWater(new B.Vector3(x,0.04,z), 2.4, '#3a6a5a'); }
+        for (let i=0;i<8;i++){ const x=rndX(), z=rndZ(); placeDeco('svine', () => { const m=B.MeshBuilder.CreateCylinder('svineS',{height:1.6,diameter:0.05,tessellation:5},scene); m.material=stdMat('svineM',hexC3('#3a5030')); return m; }, x, 1.2, z); }
+        break;
+      case 'coastal':
+        makeWater(new B.Vector3(xc + side*7, 0.02, 0), 6, '#2a6a9a');     // outer-edge sea
+        for (let i=0;i<10;i++){ const x=xc - side*Math.random()*6, z=rndZ(); placeDeco('grass', grassB('#9aa86a'), x, yAt(x,z)+0.15, z); }
+        break;
+      default:
+        for (let i=0;i<5;i++){ const x=rndX(), z=rndZ(); placeDeco('rock', rockB(pal.feature), x, yAt(x,z)+0.2, z, { rot:new B.Vector3(Math.random(),Math.random(),0) }); }
+    }
+  }
+
+  function updateTerrainAnim(dt) {
+    if (!terrain) return;
+    terrain.t += dt;
+    for (const a of terrain.anims) {
+      if      (a.type === 'shimmer') { a.tex.uOffset += dt*0.03; a.tex.vOffset += dt*0.012; }
+      else if (a.type === 'water')   { a.mesh.position.y = a.baseY + Math.sin(terrain.t*1.6 + a.ph)*0.03; }
+    }
+  }
+
+  function disposeTerrain() {
+    if (!terrain) return;
+    for (const ps of terrain.ps)   { try { ps.dispose(); } catch (e) {} }
+    for (const d of terrain.deco)  d.dispose();
+    for (const s of terrain.decoSrc) s.dispose();
+    for (const g of terrain.grounds) { if (g.material && g.material.diffuseTexture) g.material.diffuseTexture.dispose(); g.dispose(); }
+    for (const m of terrain.mats)  { try { m.dispose(); } catch (e) {} }
+    terrain = null;
   }
 
   /* ========================================================================
@@ -549,6 +725,7 @@
 
       this.units = [];
       this.buildings = [];
+      this.settlements = [];         // UPGRADE 2: tech-age building records
       this.startCount = {};          // side → spawned unit count (for army scaling)
       this.specialFired = {};        // side → bool
       this.phase = 'spawn';
@@ -568,18 +745,20 @@
       //   (each {civ, casualtyPct, fellAt}) and spawn three armies into three
       //   sectors instead of two facing rows. Same phase machine otherwise.
 
-      // sources (one per side, instanced) — colour comes from civ.color
-      this.sources = {
-        [this.invader.side]:  makeSoldierSource(this.invader),
-        [this.defender.side]: makeSoldierSource(this.defender),
+      // UPGRADE 1: per-side race templates (built once, instanced per soldier).
+      this.MAX_POINT_LIGHTS = 2; this.MAX_SPARKLES = 4;
+      this._pointLights = 0; this._sparkles = 0;
+      this.templates = {
+        [this.invader.side]:  buildRaceTemplate(this.invader),
+        [this.defender.side]: buildRaceTemplate(this.defender),
       };
 
-      this.groundY = soldierTmpl.isPlaceholder ? 0.7 : 0.0;  // capsule centre vs GLB feet
+      this.groundY = 0;     // procedural humanoids are built feet-at-origin
 
-      this.spawnSide(this.invader, -1);   // A on the left  (x ≈ -7 → marches +x)
-      this.spawnSide(this.defender, +1);  // B on the right (x ≈ +7 → marches -x)
-      this.spawnBuildings(this.invader, -1);
-      this.spawnBuildings(this.defender, +1);
+      this.spawnSide(this.invader, -1);   // A on the left  (marches +x toward the border)
+      this.spawnSide(this.defender, +1);  // B on the right (marches -x toward the border)
+      this.spawnSettlements(this.invader, -1);   // UPGRADE 2: tech-age buildings
+      this.spawnSettlements(this.defender, +1);
 
       // attrition targets derived from the resolver's casualty fractions
       const sW = this.startCount[this.winner.side];
@@ -609,7 +788,7 @@
           const type = pickType(civ.focus, k);  // AEON_DATA_HOOK: focus → unit type
           const u = this.spawnOne(civ, new B.Vector3(x, this.groundY, z), type);
           u.home = u.mesh.position.clone();
-          u.marchTarget = new B.Vector3(dir * (0.8 + r*0.10), this.groundY, z + (Math.random()-0.5)*0.3);
+          u.marchTarget = new B.Vector3(dir * (0.8 + r*0.10), u.baseY, z + (Math.random()-0.5)*0.3);
           this.units.push(u);
           k++;
         }
@@ -617,60 +796,106 @@
     }
 
     spawnOne(civ, pos, type) {
-      const source = this.sources[civ.side];
-      let mesh;
-      if (source.type === 'instanced') {
-        // PERFORMANCE: InstancedMesh — shares geometry+material with its source,
-        // so 200+ soldiers cost ~1 draw call per side and inherit its shadow.
-        mesh = source.src.createInstance('u' + (this._id++));
-      } else {
-        // GLB path: clone the imported hierarchy. For true hundreds you'd move to
-        // Baked Vertex Animation (see perf notes) — clones of skinned meshes are
-        // far heavier than instances. We also cap GLB shadow casters.
-        mesh = soldierTmpl.glbRoot.clone('u' + (this._id++));
-        mesh.setEnabled(true);
+      const tmpl = this.templates[civ.side];
+      const node = new B.TransformNode('sol' + (this._id++), scene);
+      node.position.copyFrom(pos);
+
+      let profile, parts = [], orb = null, light = null, sparkle = null, topY = 1.4;
+
+      if (tmpl.type === 'glb') {
+        // GLB path: clone the imported hierarchy under the node (kept from Phase 1).
+        const c = soldierTmpl.glbRoot.clone('g' + this._id);
+        c.setEnabled(true); c.parent = node;
+        parts.push(c);                          // tracked for disposal
         // AEON_DATA_HOOK: tint this clone to civ.color (team material slot / decal).
-        if (this._glbShadowCasters < 80) { shadowGen.addShadowCaster(mesh); this._glbShadowCasters++; }
+        if (this._glbShadowCasters < 80) { shadowGen.addShadowCaster(c); this._glbShadowCasters++; }
+        profile = getRaceProfile(civ.race);
+      } else {
+        // PROCEDURAL: one InstancedMesh per body part, parented to the node, so a
+        // soldier is a TransformNode of instances — cheap and race-shaped.
+        profile = tmpl.profile; topY = tmpl.topY;
+        for (const d of tmpl.partDefs) {
+          const inst = d.src.createInstance('p' + this._id + '_' + parts.length);
+          inst.parent = node;
+          inst.position.set(d.pos[0], d.pos[1], d.pos[2]);
+          inst.scaling.set(d.scale[0], d.scale[1], d.scale[2]);
+          inst.rotation.set(d.rot[0], d.rot[1], d.rot[2]);
+          parts.push(inst);
+        }
       }
-      mesh.position.copyFrom(pos);
-      const baseScale = applyTypeScale(mesh, type);
 
-      const u = { mesh, baseScale, side:civ.side, civ, type,
-                  alive:true, dying:false, dead:false, deathT:0, bob:Math.random()*6.28,
-                  scatter:null, orb:null };
+      // race overall × focus-type scale on the PARENT (scales the whole soldier)
+      const sc = profile.overallScale * applyTypeScale(type);   // AEON_DATA_HOOK: focus → type
+      node.scaling.setAll(sc);
+      if (profile.bodyTilt) node.rotation.x = profile.bodyTilt;
 
-      // Mages get a glowing orb (placeholder flavour for the 'mage' silhouette).
-      if (type === 'mage' && source.type === 'instanced') {
-        const orb = mageOrbSrc.createInstance('orb' + this._id);
-        orb.parent = mesh; orb.position.y = 1.15;
-        u.orb = orb;
+      const baseY = pos.y + (profile.hoverY || 0);
+      node.position.y = baseY;
+
+      // Mages keep their glowing orb (a focus-type flourish).
+      if (type === 'mage') {
+        orb = mageOrbSrc.createInstance('orb' + this._id);
+        orb.parent = node; orb.position.y = topY + 0.2;
       }
-      return u;
+      // Infernals get a real dim point light — but CAPPED (lights are costly per
+      // material), so only the first few do; the rest rely on emissive fire glow.
+      if (profile.pointLight && this._pointLights < this.MAX_POINT_LIGHTS) {
+        light = new B.PointLight('ifl' + this._id, new B.Vector3(0, topY*0.6, 0), scene);
+        light.parent = node; light.diffuse = hexC3(civ.color); light.specular = hexC3(civ.color);
+        light.intensity = 0.45; light.range = 4.5;
+        this._pointLights++;
+      }
+      // Fae get a sparkle particle trail — also CAPPED for the same reason.
+      if (profile.sparkle && this._sparkles < this.MAX_SPARKLES) {
+        sparkle = makeSparkle(node, civ.color); this._sparkles++;
+      }
+
+      return { mesh:node, parts, orb, light, sparkle,
+               baseScale:new B.Vector3(sc, sc, sc), baseY, side:civ.side, civ, type,
+               alive:true, dying:false, dead:false, deathT:0,
+               bob:Math.random()*6.28, bobStyle:profile.bob, scatter:null };
     }
 
-    spawnBuildings(civ, dir) {
-      for (let i = 0; i < 3; i++) {
-        let b;
-        if (buildingTmpl && !buildingTmpl.isPlaceholder) {
-          b = buildingTmpl.glbRoot.clone('bld' + civ.side + i);
-          b.setEnabled(true);
-          b.position.set(dir * 9.3, 0, (i - 1) * 2.6);
-        } else {
-          // Requirement #4 fallback: a box in the civ's colour.
-          const ht = 2 + i * 0.5;
-          b = B.MeshBuilder.CreateBox('bld' + civ.side + i, { width:1.4, height:ht, depth:1.4 }, scene);
-          const m = new B.StandardMaterial('bm' + civ.side + i, scene);
-          const c = hexC3(civ.color);                       // AEON_DATA_HOOK: civ.color
-          m.diffuseColor = c.scale(0.7);
-          m.emissiveColor = c.scale(0.06);
-          m.specularColor = new B.Color3(0.05,0.05,0.05);
-          b.material = m;
-          b.position.set(dir * 9.3, ht/2, (i - 1) * 2.6);
-        }
-        b.receiveShadows = true;
-        shadowGen.addShadowCaster(b);
-        this.buildings.push(b);
+    // UPGRADE 2: place several tech-age settlements around the spawn zone and
+    // record each so step() can rebuild it when civ.techAge changes.
+    spawnSettlements(civ, dir) {
+      const N = 4;
+      const industry = civ.focus === 'industry';        // AEON_DATA_HOOK: civ.focus (industry bonus)
+      for (let i = 0; i < N; i++) {
+        const pos = new B.Vector3(dir * (9 + (i % 2) * 1.6), 0, (i - (N-1)/2) * 2.7);
+        const age = civ.techAge | 0;                     // AEON_DATA_HOOK: civ.techAge
+        const node = buildSettlement(age, civ.color, scene, industry);   // AEON_DATA_HOOK: civ.color
+        node.position.copyFrom(pos);
+        this.settlements.push({ civ, node, lastAge:age, pos, industry });
       }
+    }
+
+    // Watch each settlement's civ.techAge; on change, rebuild + construction burst.
+    stepSettlements(dt) {
+      for (const rec of this.settlements) {
+        const age = rec.civ.techAge | 0;                 // AEON_DATA_HOOK: civ.techAge
+        if (age !== rec.lastAge) {
+          const at = rec.node.position.clone(); at.y += 1;
+          disposeSettlement(rec);
+          rec.node = buildSettlement(age, rec.civ.color, scene, rec.industry);
+          rec.node.position.copyFrom(rec.pos);
+          rec.lastAge = age;
+          this.constructionBurst(at, rec.civ.color);
+        }
+        updateSettlementAnim(rec.node, dt);
+      }
+    }
+
+    constructionBurst(at, hex) {
+      const ps = new B.ParticleSystem('build', 160, scene);
+      ps.particleTexture = particleTex;
+      ps.emitter = at;
+      ps.minEmitBox = new B.Vector3(-0.8, 0, -0.8); ps.maxEmitBox = new B.Vector3(0.8, 0.4, 0.8);
+      ps.color1 = col4('#b9a07a', 0.9); ps.color2 = col4(hex, 0.8); ps.colorDead = col4('#b9a07a', 0);
+      ps.minSize = 0.15; ps.maxSize = 0.5; ps.minLifeTime = 0.4; ps.maxLifeTime = 1.0;
+      ps.minEmitPower = 1.5; ps.maxEmitPower = 4; ps.gravity = new B.Vector3(0, -2, 0);
+      ps.emitRate = 0; ps.manualEmitCount = 160; ps.disposeOnStop = true;
+      ps.start(); setTimeout(() => ps.stop(), 60); this._activeParticles.push(ps);
     }
 
     /* ----- per-frame step (driven by the render loop) ---------------------- */
@@ -685,7 +910,25 @@
       else if (this.phase === 'resolve') this.stepResolve(dt);
 
       this.processDying(dt);
+      this.stepSettlements(dt);     // UPGRADE 2: rebuild buildings on tech-age change
       this.updateUI();
+    }
+
+    // UPGRADE 1: per-race bob/shake on the parent node (constructs stay rigid).
+    bobUnit(u, ampMul, jitter) {
+      if (u.bobStyle === 'none') { u.mesh.position.y = u.baseY; return; }
+      let amp = 0.06 * ampMul, fr = 6;
+      switch (u.bobStyle) {
+        case 'erratic': amp *= 1.7; fr = 9;  break;   // goblins
+        case 'skitter': amp *= 0.6; fr = 16; break;   // insectoids
+        case 'prowl':   amp *= 0.8; fr = 4;  break;   // beastfolk
+        case 'slither': amp *= 0.5; fr = 7;  break;   // merfolk
+      }
+      u.mesh.position.y = u.baseY + Math.sin(this.t * fr + u.bob) * amp;
+      if (jitter) {
+        u.mesh.position.x += (Math.random() - 0.5) * jitter;
+        u.mesh.position.z += (Math.random() - 0.5) * jitter;
+      }
     }
 
     stepSpawn() {
@@ -707,7 +950,7 @@
         if (!u.alive || u.dying) continue;
         alive++;
         B.Vector3.LerpToRef(u.mesh.position, u.marchTarget, clamp(dt*1.8, 0, 1), u.mesh.position);
-        u.mesh.position.y = this.groundY + Math.sin(this.t*6 + u.bob) * 0.06;  // march bob
+        this.bobUnit(u, 1.3, 0);                                               // march bob (raised)
         if (B.Vector3.Distance(u.mesh.position, u.marchTarget) < 0.45) arrived++;
       }
       if (this.phaseTime > 5 || (alive > 0 && arrived / alive > 0.7)) {
@@ -722,7 +965,7 @@
         if (!u.alive || u.dying) continue;
         const push = (u.side === this.invader.side) ? 1 : -1;
         u.mesh.position.x += Math.sin(this.t*10 + u.bob) * 0.004 * push;
-        u.mesh.position.y = this.groundY + Math.abs(Math.sin(this.t*9 + u.bob)) * 0.05;
+        this.bobUnit(u, 0.8, 0.012);                                          // clash shake
       }
       // attrition paced by a fixed tick; rates derived from casualty fractions
       this.killAcc += dt;
@@ -742,12 +985,13 @@
     }
 
     stepResolve(dt) {
+      camera.alpha += 0.002;        // UPGRADE 3: slow cinematic auto-orbit on resolve
       // winner fans out to occupy the whole field
       for (const u of this.units) {
         if (u.civ !== this.winner || !u.alive || u.dying) continue;
-        if (!u.scatter) u.scatter = new B.Vector3((Math.random()*2-1)*9, this.groundY, (Math.random()*2-1)*9);
+        if (!u.scatter) u.scatter = new B.Vector3((Math.random()*2-1)*16, u.baseY, (Math.random()*2-1)*9);
         B.Vector3.LerpToRef(u.mesh.position, u.scatter, clamp(dt*0.8, 0, 1), u.mesh.position);
-        u.mesh.position.y = this.groundY + Math.sin(this.t*5 + u.bob) * 0.05;
+        this.bobUnit(u, 0.9, 0);
       }
       if (this.phaseTime > 3.2) { this.phase = 'done'; this._done = true; }
     }
@@ -766,11 +1010,13 @@
         u.deathT += dt;
         const k = Math.max(0, 1 - u.deathT / 0.45);
         u.mesh.scaling.set(u.baseScale.x*k, u.baseScale.y*k, u.baseScale.z*k);
-        u.mesh.position.y = this.groundY - (1 - k) * 0.5;     // sink into the ground
+        u.mesh.position.y = u.baseY - (1 - k) * 0.5;          // sink into the ground
         if (k <= 0) {
           u.dead = true;
           u.mesh.setEnabled(false);
           if (u.orb) u.orb.setEnabled(false);
+          if (u.light) u.light.setEnabled(false);
+          if (u.sparkle) u.sparkle.stop();
         }
       }
     }
@@ -849,11 +1095,22 @@
 
     /* ----- teardown (for replay / integration handoff) -------------------- */
     dispose() {
-      for (const u of this.units) { if (u.orb) u.orb.dispose(); u.mesh.dispose(); }
-      for (const s of Object.values(this.sources || {})) if (s.src) s.src.dispose();
+      for (const u of this.units) {
+        for (const p of u.parts) p.dispose();
+        if (u.orb) u.orb.dispose();
+        if (u.light) u.light.dispose();
+        if (u.sparkle) u.sparkle.dispose();
+        u.mesh.dispose();
+      }
+      for (const t of Object.values(this.templates || {})) {
+        if (t.owned) for (const m of t.owned) m.dispose();
+        if (t.mats)  for (const m of t.mats)  m.dispose();
+      }
+      for (const rec of (this.settlements || [])) disposeSettlement(rec);
       for (const b of this.buildings) b.dispose();
       for (const ps of this._activeParticles) { try { ps.dispose(); } catch (e) {} }
       this.units.length = 0; this.buildings.length = 0;
+      if (this.settlements) this.settlements.length = 0;
     }
 
     isDone() { return this.phase === 'done'; }
@@ -863,28 +1120,201 @@
    *  UNIT-SOURCE + TYPE HELPERS
    * ====================================================================== */
 
-  // One instancing source per side, coloured by civ.color. Its instances all
-  // share this geometry/material AND inherit its single shadow caster.
-  function makeSoldierSource(civ) {
-    if (soldierTmpl && !soldierTmpl.isPlaceholder) return { type:'glb' };   // clone path
+  /* ========================================================================
+   *  UPGRADE 1 — RACE-DIFFERENTIATED PROCEDURAL SOLDIERS
+   *  ------------------------------------------------------------------------
+   *  Each soldier is a TransformNode parent whose children are InstancedMesh
+   *  body parts (body/head/arms/legs + race extras). The PART SOURCES are built
+   *  once per side as a "template" (buildRaceTemplate) — never shown directly —
+   *  and every soldier is assembled from createInstance() calls, so 200+ troops
+   *  stay cheap (a handful of instanced sources + flat shadow-caster count).
+   * ====================================================================== */
 
-    // Requirement #3 fallback: capsule (CapsuleGeometry via MeshBuilder).
-    const m = B.MeshBuilder.CreateCapsule('src_' + civ.side,
-      { height:1.4, radius:0.25, tessellation:6, capSubdivisions:2 }, scene);
-    const mat = new B.StandardMaterial('srcMat_' + civ.side, scene);
-    const c = hexC3(civ.color);                       // AEON_DATA_HOOK: civ.color
-    mat.diffuseColor = c;
-    mat.emissiveColor = c.scale(0.14);
-    mat.specularColor = new B.Color3(0.08, 0.08, 0.08);
-    m.material = mat;
-    m.isVisible = false;        // source itself never drawn…
-    m.isPickable = false;
-    // …but an invisible mesh still casts shadows, and instances DON'T inherit the
-    // source's transform — so park the source underground or its own capsule-shadow
-    // would land at world-centre with no soldier under it.
-    m.position.y = -50;
-    shadowGen.addShadowCaster(m);   // every instance casts its shadow via this one caster
-    return { type:'instanced', src:m, mat };
+  // colour helpers
+  const mix  = (a, b, t) => new B.Color3(a.r+(b.r-a.r)*t, a.g+(b.g-a.g)*t, a.b+(b.b-a.b)*t);
+  const desat= (c)       => { const l=(c.r+c.g+c.b)/3; return new B.Color3(l*0.6+c.r*0.4, l*0.6+c.g*0.4, l*0.6+c.b*0.4); };
+  const clampC=(c)       => new B.Color3(clamp(c.r,0,1), clamp(c.g,0,1), clamp(c.b,0,1));
+
+  function stdMat(name, color, opts) {
+    const m = new B.StandardMaterial(name, scene);
+    m.diffuseColor = clampC(color);
+    m.specularColor = new B.Color3(0.08, 0.08, 0.08);
+    m.maxSimultaneousLights = 8;                 // headroom for infernal point lights
+    if (opts) {
+      if (opts.emissive)        m.emissiveColor = clampC(opts.emissive);
+      if (opts.disableLighting) m.disableLighting = true;
+      if (opts.metallic) { m.specularColor = new B.Color3(0.55,0.55,0.6); m.specularPower = 64; }
+    }
+    return m;
+  }
+
+  // AEON_DATA_HOOK: civ.race → visual profile. Unlisted races fall back to humans.
+  const RACE_DEFAULTS = {
+    overallScale:1, bodyShape:'cylinder', headShape:'sphere',
+    bodyScaleX:1, bodyScaleY:1, headScale:1, bodyTilt:0, hoverY:0, bob:'normal',
+    emissive:0, metallic:false, bodyTint:null, headTint:null, limbTint:null,
+    extras:{}, pointLight:false, sparkle:false,
+  };
+  const RACE_OVERRIDES = {
+    humans:   {},
+    orcs:     { bodyScaleX:1.4, bodyScaleY:0.85, headScale:1.2,
+                bodyTint:()=>hexC3('#3a5a3a'), headTint:()=>hexC3('#3a5a3a'), limbTint:()=>hexC3('#2f4a2f'),
+                extras:{ shoulderPads:true, thickArms:true } },
+    elves:    { bodyScaleX:0.75, bodyScaleY:1.25, headScale:0.8, emissive:0.22, extras:{ robe:true } },
+    dwarves:  { bodyScaleX:1.5, bodyScaleY:0.65, limbTint:c=>c.scale(0.55),
+                extras:{ armor:true, helmet:true } },
+    frostborn:{ bodyScaleX:1.2, bodyScaleY:0.9, bodyTint:c=>mix(c, hexC3('#dfeefc'), 0.45),
+                extras:{ furCollar:true } },
+    giants:   { overallScale:2, headScale:1.3, bodyTint:()=>hexC3('#6b6b6b'),
+                headTint:()=>hexC3('#6b6b6b'), limbTint:()=>hexC3('#565656'), extras:{ belt:true } },
+    goblins:  { overallScale:0.6, bodyTilt:0.26, headScale:1.4, bob:'erratic',
+                limbTint:()=>hexC3('#23252b') },
+    undead:   { bodyScaleX:0.8, bodyTilt:0.12, headShape:'flatsphere', bodyTint:c=>desat(c),
+                headTint:()=>hexC3('#cfcabb'), limbTint:()=>hexC3('#9a958a'), extras:{ eyes:true } },
+    infernals:{ bodyScaleX:1.1, bodyScaleY:1.2, emissive:0.5, bodyTint:c=>mix(hexC3('#1a0e0e'), c, 0.4),
+                extras:{ horns:true }, pointLight:true },
+    lizardfolk:{ headScale:1.05, bodyTint:c=>mix(c, hexC3('#2f6a3a'), 0.4), extras:{ tail:true } },
+    avians:   { bodyScaleX:0.85, bodyScaleY:1.1, headScale:0.85,
+                bodyTint:c=>mix(c, hexC3('#dfe6ee'), 0.2), extras:{ wings:true } },
+    fae:      { overallScale:0.9, bodyScaleX:0.65, hoverY:0.3, headScale:0.8, emissive:0.6, sparkle:true },
+    merfolk:  { bodyTint:c=>mix(c, hexC3('#3a7ad0'), 0.4), bob:'slither', extras:{ fin:true } },
+    constructs:{ bodyShape:'box', headShape:'box', metallic:true, bob:'none',
+                bodyTint:()=>hexC3('#6a6e76'), headTint:()=>hexC3('#5a5e66'), extras:{ leds:true } },
+    beastfolk:{ bodyTilt:0.35, bob:'prowl', bodyTint:c=>mix(hexC3('#6b4a2f'), c, 0.35),
+                extras:{ longArms:true } },
+    insectoids:{ bodyScaleX:0.8, headShape:'icosphere', bob:'skitter',
+                bodyTint:c=>mix(hexC3('#1a1a22'), c, 0.4), extras:{ fourArms:true } },
+  };
+  function getRaceProfile(race) {
+    const o = RACE_OVERRIDES[race] || {};
+    return Object.assign({}, RACE_DEFAULTS, o, { extras: Object.assign({}, o.extras || {}) });
+  }
+
+  // Build the per-side part-source set + the part-instance layout (partDefs).
+  function buildRaceTemplate(civ) {
+    if (soldierTmpl && !soldierTmpl.isPlaceholder) return { type:'glb' };   // real GLB → clone path
+
+    const p = getRaceProfile(civ.race);                 // AEON_DATA_HOOK: civ.race
+    const civC = hexC3(civ.color);                      // AEON_DATA_HOOK: civ.color
+    const S = civ.side;
+    const bodyCol = p.bodyTint ? p.bodyTint(civC) : civC.clone();
+    const headCol = p.headTint ? p.headTint(civC) : civC.scale(1.15);
+    const limbCol = p.limbTint ? p.limbTint(civC) : civC.scale(0.7);
+
+    const matBody = stdMat('body_'+S, bodyCol, { emissive: p.emissive?bodyCol.scale(p.emissive):null, metallic:p.metallic });
+    const matHead = stdMat('head_'+S, headCol, { emissive: p.emissive?headCol.scale(p.emissive*0.6):null, metallic:p.metallic });
+    const matLimb = stdMat('limb_'+S, limbCol, { metallic:p.metallic });
+
+    const owned = [];        // every source mesh we make, for disposal
+    const ownedMats = [];    // …and every material (incl. race extras)
+    function src(mesh, mat, castShadow) {
+      mesh.material = mat; mesh.isVisible = false; mesh.isPickable = false; mesh.position.y = -50;
+      owned.push(mesh);
+      if (mat && ownedMats.indexOf(mat) < 0) ownedMats.push(mat);
+      if (castShadow) shadowGen.addShadowCaster(mesh);
+      return mesh;
+    }
+
+    // core sources
+    const bodySrc = src(p.bodyShape === 'box'
+      ? B.MeshBuilder.CreateBox('b_'+S, { width:0.5, height:0.9, depth:0.36 }, scene)
+      : B.MeshBuilder.CreateCylinder('b_'+S, { height:0.9, diameterTop:0.42, diameterBottom:0.5, tessellation:10 }, scene),
+      matBody, true);
+    let headSrc;
+    if (p.headShape === 'box')        headSrc = B.MeshBuilder.CreateBox('h_'+S, { size:0.42 }, scene);
+    else if (p.headShape === 'icosphere') headSrc = B.MeshBuilder.CreateIcoSphere('h_'+S, { radius:0.25, subdivisions:1 }, scene);
+    else                              headSrc = B.MeshBuilder.CreateSphere('h_'+S, { diameter:0.5, segments:10 }, scene);
+    src(headSrc, matHead, true);
+    const limbSrc = src(B.MeshBuilder.CreateCylinder('l_'+S, { height:0.5, diameter:0.16, tessellation:6 }, scene), matLimb, true);
+
+    // layout (feet at local y=0)
+    const legH = 0.5, bsx = p.bodyScaleX, bsy = p.bodyScaleY;
+    const bodyH = 0.9 * bsy, bodyY = legH + bodyH/2, bodyR = 0.25 * bsx;
+    const headR = 0.25 * p.headScale;
+    const headY = legH + bodyH + headR * 0.9;
+    const shoulderY = legH + bodyH * 0.78;
+    const armX = bodyR + 0.05, armThick = p.extras.thickArms ? 1.6 : 1, armLen = (p.extras.longArms ? 0.62 : 0.46);
+    const topY = headY + headR;
+
+    const defs = [];
+    const def = (s, pos, scl, rot) => defs.push({ src:s, pos, scale:scl||[1,1,1], rot:rot||[0,0,0] });
+
+    def(bodySrc, [0, bodyY, 0], [bsx, bsy, bsx]);
+    def(headSrc, [0, headY, 0], [p.headScale, p.headScale*(p.headShape==='flatsphere'?0.8:1), p.headScale]);
+    // arms (mirrored)
+    def(limbSrc, [ armX, shoulderY, 0], [armThick, armLen/0.5, armThick], [0, 0, -0.32]);
+    def(limbSrc, [-armX, shoulderY, 0], [armThick, armLen/0.5, armThick], [0, 0,  0.32]);
+    // legs (mirrored) — merfolk replace legs with a fin
+    if (!p.extras.fin) {
+      def(limbSrc, [ 0.12, 0.25, 0], [1, 1, 1]);
+      def(limbSrc, [-0.12, 0.25, 0], [1, 1, 1]);
+    }
+
+    // ---- race extras ----
+    const ex = p.extras;
+    if (ex.shoulderPads) {
+      const padSrc = src(B.MeshBuilder.CreateBox('pad_'+S, { size:0.2 }, scene), stdMat('pad_'+S, civC), false);
+      def(padSrc, [ armX+0.02, shoulderY+0.06, 0], [1,0.7,1.2]);
+      def(padSrc, [-armX-0.02, shoulderY+0.06, 0], [1,0.7,1.2]);
+    }
+    if (ex.robe) {
+      const robeSrc = src(B.MeshBuilder.CreateCylinder('robe_'+S, { height:bodyH*1.15, diameterTop:0.5*bsx, diameterBottom:0.78*bsx, tessellation:10 }, scene), stdMat('robe_'+S, civC, { emissive: civC.scale(0.18) }), true);
+      def(robeSrc, [0, bodyY-0.04, 0]);
+    }
+    if (ex.armor) {
+      const armSrc = src(B.MeshBuilder.CreateCylinder('arm_'+S, { height:bodyH*0.96, diameterTop:0.5, diameterBottom:0.56, tessellation:10 }, scene), stdMat('armor_'+S, hexC3('#8a8d94'), { metallic:true }), true);
+      def(armSrc, [0, bodyY, 0], [bsx*1.05, 1, bsx*1.05]);
+    }
+    if (ex.helmet) {
+      const helmSrc = src(B.MeshBuilder.CreateBox('helm_'+S, { width:0.46, height:0.28, depth:0.46 }, scene), stdMat('helm_'+S, hexC3('#9a9da4'), { metallic:true }), false);
+      def(helmSrc, [0, headY+headR*0.55, 0], [p.headScale, p.headScale, p.headScale]);
+    }
+    if (ex.furCollar) {
+      const furSrc = src(B.MeshBuilder.CreateTorus('fur_'+S, { diameter:0.55, thickness:0.14, tessellation:10 }, scene), stdMat('fur_'+S, hexC3('#eef3f8')), false);
+      def(furSrc, [0, legH+bodyH-0.02, 0], [bsx,1,bsx]);
+    }
+    if (ex.belt) {
+      const beltSrc = src(B.MeshBuilder.CreateTorus('belt_'+S, { diameter:bodyR*2.3, thickness:0.1, tessellation:10 }, scene), stdMat('belt_'+S, civC, { emissive:civC.scale(0.2) }), false);
+      def(beltSrc, [0, bodyY-bodyH*0.15, 0]);
+    }
+    if (ex.horns) {
+      const hornSrc = src(B.MeshBuilder.CreateCylinder('horn_'+S, { height:0.3, diameterTop:0, diameterBottom:0.12, tessellation:6 }, scene), stdMat('horn_'+S, hexC3('#2a1414')), false);
+      def(hornSrc, [ 0.13*p.headScale, headY+headR*0.7, 0], [1,1,1], [0,0,-0.3]);
+      def(hornSrc, [-0.13*p.headScale, headY+headR*0.7, 0], [1,1,1], [0,0, 0.3]);
+    }
+    if (ex.eyes) {
+      const eyeSrc = src(B.MeshBuilder.CreateSphere('eye_'+S, { diameter:0.07, segments:4 }, scene), stdMat('eye_'+S, hexC3('#ff2a1a'), { emissive:hexC3('#ff2a1a'), disableLighting:true }), false);
+      def(eyeSrc, [ 0.08, headY+0.02, headR*0.85]);
+      def(eyeSrc, [-0.08, headY+0.02, headR*0.85]);
+    }
+    if (ex.tail) {
+      const tailSrc = src(B.MeshBuilder.CreateCylinder('tail_'+S, { height:0.5, diameterTop:0.04, diameterBottom:0.16, tessellation:6 }, scene), stdMat('tail_'+S, bodyCol), false);
+      def(tailSrc, [0, legH+0.12, -bodyR-0.14], [1,1,1], [-0.9,0,0]);
+    }
+    if (ex.wings) {
+      const wingSrc = src(B.MeshBuilder.CreateBox('wing_'+S, { width:0.55, height:0.32, depth:0.04 }, scene), stdMat('wing_'+S, mix(civC, hexC3('#ffffff'), 0.3), { emissive: civC.scale(0.1) }), false);
+      def(wingSrc, [ bodyR+0.05, shoulderY, -0.08], [1,1,1], [0, -0.5, 0.2]);
+      def(wingSrc, [-bodyR-0.05, shoulderY, -0.08], [1,1,1], [0,  0.5, 0.2]);
+    }
+    if (ex.fourArms) {
+      const sY2 = legH + bodyH * 0.45;
+      def(limbSrc, [ armX, sY2, 0], [0.85, armLen/0.55, 0.85], [0,0,-0.5]);
+      def(limbSrc, [-armX, sY2, 0], [0.85, armLen/0.55, 0.85], [0,0, 0.5]);
+    }
+    if (ex.fin) {
+      const finSrc = src(B.MeshBuilder.CreateCylinder('fin_'+S, { height:0.5, diameterTop:0.42, diameterBottom:0.06, tessellation:8 }, scene), stdMat('fin_'+S, bodyCol), true);
+      def(finSrc, [0, 0.25, 0]);
+      const flukeSrc = src(B.MeshBuilder.CreateBox('fluke_'+S, { width:0.5, height:0.05, depth:0.18 }, scene), stdMat('fluke_'+S, mix(bodyCol, hexC3('#3a7ad0'), 0.4)), false);
+      def(flukeSrc, [0, 0.03, 0]);
+    }
+    if (ex.leds) {
+      const ledSrc = src(B.MeshBuilder.CreateBox('led_'+S, { size:0.07 }, scene), stdMat('led_'+S, civC, { emissive:civC, disableLighting:true }), false);
+      def(ledSrc, [0,    bodyY+0.12, bodyR*0.9]);
+      def(ledSrc, [0.12, bodyY-0.05, bodyR*0.9]);
+      def(ledSrc, [-0.12,bodyY-0.05, bodyR*0.9]);
+    }
+
+    return { type:'procedural', profile:p, partDefs:defs, owned, mats:ownedMats, topY };
   }
 
   // AEON_DATA_HOOK: focus → unit type (index into FOCUS_UNIT_POOLS)
@@ -893,17 +1323,15 @@
     return pool[i % pool.length];
   }
 
-  // Give each unit type a distinct silhouette via per-instance scaling.
-  function applyTypeScale(mesh, type) {
-    let s;
+  // Focus → unit type now layers a subtle SIZE cue on top of the race silhouette
+  // (race drives the shape; type nudges scale). Returns a uniform multiplier.
+  function applyTypeScale(type) {
     switch (type) {
-      case 'cavalry': s = new B.Vector3(1.25, 1.05, 1.55); break;  // broad/long
-      case 'archer':  s = new B.Vector3(0.85, 1.05, 0.85); break;  // slight
-      case 'mage':    s = new B.Vector3(0.90, 1.12, 0.90); break;  // tall (+orb)
-      default:        s = new B.Vector3(1, 1, 1);                  // infantry
+      case 'cavalry': return 1.12;   // bigger
+      case 'archer':  return 0.92;   // slighter
+      case 'mage':    return 1.0;    // + orb
+      default:        return 1.0;    // infantry
     }
-    mesh.scaling.copyFrom(s);
-    return s.clone();
   }
 
   // AEON_DATA_HOOK: army(int) → rendered unit count.
@@ -911,6 +1339,129 @@
   // soldiers. Bump the cap once you've moved soldiers to instances/VAT.
   function armyToUnits(army) {
     return clamp(Math.round(army / 220), 14, 64);
+  }
+
+  // Fae sparkle trail (capped to a few units — particle systems aren't free).
+  function makeSparkle(node, hex) {
+    const ps = new B.ParticleSystem('sparkle', 60, scene);
+    ps.particleTexture = particleTex;
+    ps.emitter = node;                                  // follows the soldier node
+    ps.minEmitBox = new B.Vector3(-0.2, 0.4, -0.2);
+    ps.maxEmitBox = new B.Vector3( 0.2, 1.4,  0.2);
+    ps.blendMode = B.ParticleSystem.BLENDMODE_ADD;
+    ps.color1 = col4(hex, 0.9); ps.color2 = col4('#ffffff', 0.8); ps.colorDead = col4(hex, 0);
+    ps.minSize = 0.04; ps.maxSize = 0.12;
+    ps.minLifeTime = 0.4; ps.maxLifeTime = 0.9;
+    ps.emitRate = 16;
+    ps.minEmitPower = 0.1; ps.maxEmitPower = 0.4;
+    ps.gravity = new B.Vector3(0, 0.6, 0);
+    ps.start();
+    return ps;
+  }
+
+  /* ========================================================================
+   *  UPGRADE 2 — TECH-AGE EVOLVING SETTLEMENTS
+   *  buildSettlement(techAge, civColor, scene[, industry]) → TransformNode
+   *  Built from stacked primitives; only 6–10 exist so they're plain meshes
+   *  (not instanced). Animated bits register on node.metadata.anim.
+   * ====================================================================== */
+  function buildSettlement(techAge, civHex, sc, industry) {
+    const node = new B.TransformNode('settlement', scene);
+    node.metadata = { anim: [], meshes: [], mats: [], ps: [], t: 0 };
+    const civC = hexC3(civHex);                         // AEON_DATA_HOOK: civ.color
+    const add = (mesh, mat, x, y, z) => {
+      mesh.material = mat; mesh.parent = node;
+      if (x != null) mesh.position.set(x, y, z);
+      mesh.receiveShadows = true; shadowGen.addShadowCaster(mesh);
+      node.metadata.meshes.push(mesh);
+      if (mat && node.metadata.mats.indexOf(mat) < 0) node.metadata.mats.push(mat);
+      return mesh;
+    };
+    const M = (name, color, opts) => stdMat(name, color, opts);
+
+    if (techAge <= 1) {
+      // Age 0–1 — Hut: cylinder base + cone thatch roof (mud brown)
+      add(B.MeshBuilder.CreateCylinder('hb', { height:0.8, diameter:2, tessellation:12 }, scene), M('mud', hexC3('#6b4f33')), 0, 0.4, 0);
+      add(B.MeshBuilder.CreateCylinder('hr', { height:0.6, diameterTop:0, diameterBottom:2.2, tessellation:12 }, scene), M('thatch', hexC3('#9a7b48')), 0, 1.1, 0);
+    } else if (techAge === 2) {
+      // Age 2 — Longhouse: box + ridge roof (inverted-V of two angled boxes)
+      add(B.MeshBuilder.CreateBox('lh', { width:3, height:0.8, depth:1.5 }, scene), M('wood', hexC3('#6b4a2f')), 0, 0.4, 0);
+      const roofMat = M('roof', hexC3('#5a3d28'));
+      const r1 = add(B.MeshBuilder.CreateBox('r1', { width:3, height:0.1, depth:1.05 }, scene), roofMat, 0, 0.98, 0.42);  r1.rotation.x =  0.62;
+      const r2 = add(B.MeshBuilder.CreateBox('r2', { width:3, height:0.1, depth:1.05 }, scene), roofMat, 0, 0.98, -0.42); r2.rotation.x = -0.62;
+    } else if (techAge === 3) {
+      // Age 3 — Stone Keep: tall box + 4 corner battlements + side tower
+      add(B.MeshBuilder.CreateBox('keep', { width:1.5, height:2, depth:1.5 }, scene), M('stone', hexC3('#7d7f86')), 0, 1, 0);
+      const bm = M('batt', hexC3('#6b6d74'));
+      [[-0.6,-0.6],[0.6,-0.6],[-0.6,0.6],[0.6,0.6]].forEach((c,i) => add(B.MeshBuilder.CreateBox('bt'+i, { size:0.35 }, scene), bm, c[0], 2.1, c[1]));
+      add(B.MeshBuilder.CreateCylinder('twr', { height:2.6, diameter:0.7, tessellation:10 }, scene), M('twr', hexC3('#73757c')), 1.0, 1.3, 0);
+    } else if (techAge === 4) {
+      // Age 4 — Town Hall: wide box + arched window cutouts + dome
+      add(B.MeshBuilder.CreateBox('th', { width:3, height:1.5, depth:2 }, scene), M('plaster', hexC3('#b9ab8f')), 0, 0.75, 0);
+      const win = M('win', hexC3('#23252b'));
+      for (let i = -1; i <= 1; i++) add(B.MeshBuilder.CreateBox('w'+i, { width:0.3, height:0.7, depth:0.06 }, scene), win, i*0.9, 0.8, 1.01);
+      add(B.MeshBuilder.CreateSphere('dome', { diameter:1.2, segments:12, slice:0.5 }, scene), M('dome', civC, { emissive: civC.scale(0.1) }), 0, 1.5, 0);
+    } else if (techAge === 5) {
+      // Age 5 — Factory: wide box + smokestacks (emissive tops) + spinning gear
+      add(B.MeshBuilder.CreateBox('fac', { width:3.2, height:1.2, depth:2 }, scene), M('brick', hexC3('#4a3a34')), 0, 0.6, 0);
+      const stackMat = M('stack', hexC3('#3a2f2b'));
+      const glowMat  = M('sglow', hexC3('#ff7a2a'), { emissive: hexC3('#ff7a2a'), disableLighting:true });
+      const stacks = industry ? 3 : 2;                  // AEON_DATA_HOOK: industry → extra smokestack
+      for (let i = 0; i < stacks; i++) {
+        const sx = -0.8 + i * 0.8;
+        add(B.MeshBuilder.CreateCylinder('st'+i, { height:2, diameter:0.4, tessellation:8 }, scene), stackMat, sx, 1.6, -0.4);
+        add(B.MeshBuilder.CreateCylinder('sg'+i, { height:0.18, diameter:0.44, tessellation:8 }, scene), glowMat, sx, 2.6, -0.4);
+      }
+      const gear = add(B.MeshBuilder.CreateCylinder('gear', { height:0.12, diameter:1, tessellation:12 }, scene), M('gear', hexC3('#6b5a45')), 1.2, 1.0, 1.05);
+      gear.rotation.x = Math.PI / 2;
+      node.metadata.anim.push({ type:'spin', mesh:gear, speed:1.2 });
+    } else if (techAge === 6) {
+      // Age 6 — Office Block: tall glass slab (specular/blue) + window grid
+      const glass = M('glass', hexC3('#3a5d7a'));
+      glass.specularColor = new B.Color3(0.8, 0.85, 0.95); glass.specularPower = 128; glass.alpha = 0.96;
+      add(B.MeshBuilder.CreateBox('off', { width:2, height:3, depth:1 }, scene), glass, 0, 1.5, 0);
+      const line = M('mull', hexC3('#1a2230'));
+      for (let y = 0; y < 5; y++) add(B.MeshBuilder.CreateBox('gl'+y, { width:2.02, height:0.05, depth:1.02 }, scene), line, 0, 0.5 + y*0.55, 0);
+    } else {
+      // Age 7+ — Megastructure: towers + emissive panels + floating orb + beam
+      const towerMat = M('mega', hexC3('#2a3550'));
+      const panelMat = M('panel', civC, { emissive: civC.scale(industry ? 1.0 : 0.7), disableLighting:true });
+      add(B.MeshBuilder.CreateBox('mt1', { width:0.9, height:3.4, depth:0.9 }, scene), towerMat, -0.9, 1.7, 0);
+      add(B.MeshBuilder.CreateBox('mt2', { width:0.9, height:2.6, depth:0.9 }, scene), towerMat,  0.9, 1.3, 0);
+      add(B.MeshBuilder.CreateBox('p1',  { width:0.95, height:0.5, depth:0.95 }, scene), panelMat, -0.9, 2.6, 0);
+      add(B.MeshBuilder.CreateBox('p2',  { width:0.95, height:0.5, depth:0.95 }, scene), panelMat,  0.9, 2.0, 0);
+      const beamMat = M('beam', civC, { emissive: civC, disableLighting:true });
+      const beam = add(B.MeshBuilder.CreateCylinder('beam', { height:1.8, diameter:0.12, tessellation:6 }, scene), beamMat, 0, 2.3, 0);
+      beam.rotation.z = Math.PI / 2;                     // connect the two towers
+      node.metadata.anim.push({ type:'pulse', mat:beamMat, base:civC });
+      const orb = add(B.MeshBuilder.CreateIcoSphere('mfloat', { radius:0.4, subdivisions:1 }, scene), panelMat, 0, 3.4, 0);
+      node.metadata.anim.push({ type:'float', mesh:orb, baseY:3.4 });
+    }
+
+    // industry bonus: brighten emissive on any Age 5+ settlement
+    if (industry && techAge >= 5) {
+      for (const m of node.metadata.mats) if (m.emissiveColor) m.emissiveColor = clampC(m.emissiveColor.scale(1.6));
+    }
+    return node;
+  }
+
+  function disposeSettlement(rec) {
+    const node = rec && rec.node; if (!node) return;
+    const md = node.metadata || {};
+    if (md.ps)     for (const ps of md.ps) { try { ps.dispose(); } catch (e) {} }
+    if (md.meshes) for (const m of md.meshes) m.dispose();
+    if (md.mats)   for (const m of md.mats) m.dispose();
+    node.dispose();
+  }
+
+  function updateSettlementAnim(node, dt) {
+    const md = node.metadata; if (!md || !md.anim || !md.anim.length) return;
+    md.t += dt;
+    for (const a of md.anim) {
+      if      (a.type === 'spin')  a.mesh.rotate(B.Axis.Y, a.speed * dt, B.Space.LOCAL);
+      else if (a.type === 'float') a.mesh.position.y = a.baseY + Math.sin(md.t * 1.5) * 0.2;
+      else if (a.type === 'pulse') a.mat.emissiveColor = a.base.scale(0.5 + 0.5 * Math.abs(Math.sin(md.t * 2)));
+    }
   }
 
   /* ========================================================================
@@ -957,6 +1508,7 @@
       const now = performance.now();
       const dt = (now - last) / 1000; last = now;
       if (battle) battle.step(dt);
+      updateTerrainAnim(dt);          // UPGRADE 3: heat-shimmer / water ripple
       scene.render();
     });
 
@@ -971,23 +1523,37 @@
     // AEON_DATA_HOOK: rebuild from current (mock) civ choices → outcome
     civA.weaponUnlocked = $('wA').checked;
     civB.weaponUnlocked = $('wB').checked;
+    buildTerrain(civA.biome, civB.biome);   // UPGRADE 3 — AEON_DATA_HOOK: civ.biome per side
     outcome = buildOutcome(civA, civB);
     battle = new Battle3D(outcome);
     battle.start();
   }
 
   function populateBiomeSelect() {
-    const sel = $('biomeSel');
-    Object.keys(BIOME_COLORS).forEach(k => {
-      const o = document.createElement('option');
-      o.value = k; o.textContent = k[0].toUpperCase() + k.slice(1);
-      if (k === currentBiome) o.selected = true;
-      sel.appendChild(o);
+    [['biomeSelA', civA.biome], ['biomeSelB', civB.biome]].forEach(([id, cur]) => {
+      const sel = $(id);
+      Object.keys(BIOME_COLORS).forEach(k => {
+        const o = document.createElement('option');
+        o.value = k; o.textContent = k[0].toUpperCase() + k.slice(1);
+        if (k === cur) o.selected = true;
+        sel.appendChild(o);
+      });
     });
   }
 
   function wireControls() {
-    $('biomeSel').addEventListener('change', e => buildGround(e.target.value));
+    // AEON_DATA_HOOK: civ.biome — pick each side's terrain biome (rebuilds live)
+    $('biomeSelA').addEventListener('change', e => { civA.biome = e.target.value; buildTerrain(civA.biome, civB.biome); });
+    $('biomeSelB').addEventListener('change', e => { civB.biome = e.target.value; buildTerrain(civA.biome, civB.biome); });
+    // Tech-age steppers: bump civ.techAge live; the per-frame watcher rebuilds the
+    // settlements (UPGRADE 2) and fires a construction burst on change.
+    document.querySelectorAll('#controls .stp').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const civ = btn.dataset.age === 'A' ? civA : civB;   // AEON_DATA_HOOK: civ.techAge
+        civ.techAge = clamp((civ.techAge | 0) + parseInt(btn.dataset.d, 10), 0, 11);
+        $('age' + btn.dataset.age).textContent = civ.techAge;
+      });
+    });
     $('replay').addEventListener('click', startBattle3D);
     // weapon toggles take effect on the next replay (mirrors a fresh outcome)
     $('wA').addEventListener('change', () => {});
@@ -1018,6 +1584,13 @@
    *    scene.freezeActiveMeshes() once spawning settles (unfreeze on dispose).
    *  • PARTICLES: cap counts, reuse one soft texture (done), BLENDMODE_ADD, and
    *    disposeOnStop so special-weapon bursts clean themselves up.
+   *  • PHASE-2 SOLDIERS: each humanoid is a TransformNode of InstancedMesh body
+   *    parts sharing per-side, per-race "template" sources — so the geometry/
+   *    material/shadow cost stays flat as army size grows. Per-unit point lights
+   *    (infernals) and sparkle systems (fae) are HARD-CAPPED for the same reason.
+   *  • PHASE-2 TERRAIN: every tree/rock/decoration is an InstancedMesh off a
+   *    shared source, capped at TERRAIN_DECO_CAP (200) total. Settlements are a
+   *    handful of plain meshes (6–10), rebuilt only when civ.techAge changes.
    * ====================================================================== */
 
   window.addEventListener('DOMContentLoaded', boot);
