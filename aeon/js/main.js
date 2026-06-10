@@ -23,7 +23,50 @@ const Game = {
   battle: null,
   battleOutcome: null,
   phase: 'setup',  // setup | sim | battle | done
+  _battle3dActive: false,  // true while Battle3D owns the render loop
 };
+
+// ============================================================
+// BABYLON LAZY LOADER
+// ============================================================
+let _babylonLoadState = 'idle'; // idle | loading | ready | failed
+let _babylonQueue = [];
+
+function loadBabylon3D(onSuccess, onFail) {
+  if (_babylonLoadState === 'ready') { onSuccess(); return; }
+  if (_babylonLoadState === 'failed') { onFail(); return; }
+
+  _babylonQueue.push({ onSuccess, onFail });
+  if (_babylonLoadState === 'loading') return;
+  _babylonLoadState = 'loading';
+
+  function fail() {
+    _babylonLoadState = 'failed';
+    const q = _babylonQueue.splice(0);
+    for (const cb of q) cb.onFail();
+  }
+  function succeed() {
+    _babylonLoadState = 'ready';
+    const q = _babylonQueue.splice(0);
+    for (const cb of q) cb.onSuccess();
+  }
+
+  function loadScript(src, next, err) {
+    const s = document.createElement('script');
+    s.src = src; s.onerror = err; s.onload = next;
+    document.head.appendChild(s);
+  }
+
+  loadScript(
+    'https://cdn.jsdelivr.net/npm/babylonjs@6.49.0/babylon.js',
+    () => loadScript(
+      'https://cdn.jsdelivr.net/npm/babylonjs-loaders@6.49.0/babylonjs.loaders.min.js',
+      () => loadScript('js/battle3d.js', succeed, fail),
+      fail
+    ),
+    fail
+  );
+}
 
 function init() {
   populateSelects();
@@ -35,6 +78,8 @@ function init() {
   document.getElementById('back-to-setup').addEventListener('click', backToSetup);
   document.getElementById('skip-to-battle').addEventListener('click', skipToBattle);
   document.getElementById('new-game-btn').addEventListener('click', () => {
+    if (Game.battle && typeof Game.battle.disposeEngine === 'function') Game.battle.disposeEngine();
+    Game._battle3dActive = false;
     showScreen('setup-screen');
     Game.phase = 'setup';
     Game.running = false;
@@ -189,6 +234,10 @@ function validateConfig(side) {
 }
 
 function backToSetup() {
+  if (Game._battle3dActive && Game.battle && Game.battle.dispose) {
+    Game.battle.dispose();
+    Game._battle3dActive = false;
+  }
   Game.running = false;
   Game.phase = 'setup';
   showScreen('setup-screen');
@@ -221,9 +270,9 @@ function gameLoop(timestamp) {
   Game.lastFrameTime = timestamp;
 
   if (Game.phase === 'sim') simStep(dt);
-  else if (Game.phase === 'battle') battleStep();
+  else if (Game.phase === 'battle' && !Game._battle3dActive) battleStep();
 
-  if (Game.renderer && (Game.phase === 'sim' || Game.phase === 'battle')) {
+  if (Game.renderer && (Game.phase === 'sim' || (Game.phase === 'battle' && !Game._battle3dActive))) {
     Game.renderer.render(Game.civs, Game.year, Game.phase === 'battle' ? 'battle' : 'sim');
     document.getElementById('year').textContent = Game.year;
   }
@@ -272,11 +321,35 @@ function startBattle() {
     : resolveBattle(Game.civA, Game.civB, Game.world, Game.rng);
 
   const overlay = document.getElementById('map-overlay');
-  overlay.textContent = `FINAL ${Game.civC ? 'THREE-WAY ' : ''}BATTLE — Y${Game.maxYear}`;
+  const label = `FINAL ${Game.civC ? 'THREE-WAY ' : ''}BATTLE — Y${Game.maxYear}`;
+  overlay.textContent = label;
   overlay.classList.add('show');
 
-  Game.battle = new BattleVisualizer(Game.renderer, Game.map, Game.civs, Game.battleOutcome);
-  Game.battle.start();
+  loadBabylon3D(
+    () => {
+      // 3D path — Battle3D owns its own render loop
+      overlay.classList.remove('show');
+      const canvas = document.getElementById('battle3d-canvas');
+      canvas.style.display = '';
+      const logEl = document.getElementById('battle3d-log');
+      if (logEl) logEl.style.display = '';
+      Game._battle3dActive = true;
+      Game.battle = new Battle3D({
+        canvas,
+        civs: Game.civs,
+        outcome: Game.battleOutcome,
+        endYear: Game.maxYear,
+        onDone: finishGame,
+      });
+      Game.battle.start();
+    },
+    () => {
+      // 2D fallback — BattleVisualizer stepped from gameLoop
+      Game._battle3dActive = false;
+      Game.battle = new BattleVisualizer(Game.renderer, Game.map, Game.civs, Game.battleOutcome);
+      Game.battle.start();
+    }
+  );
 }
 
 function battleStep() {
@@ -290,6 +363,7 @@ function battleStep() {
 function finishGame() {
   Game.phase = 'done';
   Game.running = false;
+  Game._battle3dActive = false;
   document.getElementById('map-overlay').classList.remove('show');
 
   const outcome = Game.battleOutcome;
@@ -307,6 +381,9 @@ function finishGame() {
     outcome.loser.army = 0;
   }
 
+  // Capture battle log before async delay (Battle3D stays alive until after this)
+  const battleLogSnapshot = (Game.battle && Game.battle.battleLog) ? Game.battle.battleLog.slice() : [];
+
   setTimeout(() => {
     const titleEl = document.getElementById('winner-title');
     titleEl.textContent = `${winner.name.toUpperCase()} VICTORIOUS`;
@@ -317,7 +394,7 @@ function finishGame() {
     // Visual battle log
     const summaryEl = document.getElementById('battle-summary');
     summaryEl.innerHTML = '';
-    for (const entry of Game.battle.battleLog) {
+    for (const entry of battleLogSnapshot) {
       const div = document.createElement('div');
       div.innerHTML = `<span class="b-year">Y${entry.year}</span>${escapeHtml(entry.text)}`;
       summaryEl.appendChild(div);
@@ -332,6 +409,11 @@ function finishGame() {
     fs.innerHTML = Game.civs.map(finalStatCard).join('');
 
     showScreen('aftermath-screen');
+
+    // Free Babylon GPU resources now that the aftermath is shown
+    if (Game.battle && typeof Game.battle.disposeEngine === 'function') {
+      Game.battle.disposeEngine();
+    }
   }, 1500);
 }
 
