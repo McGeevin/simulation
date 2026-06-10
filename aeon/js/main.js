@@ -40,6 +40,28 @@ function loadBabylon3D(onSuccess, onFail) {
   if (_babylonLoadState === 'loading') return;
   _babylonLoadState = 'loading';
 
+  // If Babylon was already loaded eagerly (by render3d.js script tags),
+  // skip the CDN fetch and just load battle3d.js.
+  if (typeof BABYLON !== 'undefined') {
+    function succeedFast() {
+      _babylonLoadState = 'ready';
+      const q = _babylonQueue.splice(0);
+      for (const cb of q) cb.onSuccess();
+    }
+    function failFast() {
+      _babylonLoadState = 'failed';
+      const q = _babylonQueue.splice(0);
+      for (const cb of q) cb.onFail();
+    }
+    function loadScriptFast(src, next, err) {
+      const s = document.createElement('script');
+      s.src = src; s.onerror = err; s.onload = next;
+      document.head.appendChild(s);
+    }
+    loadScriptFast('js/battle3d.js', succeedFast, failFast);
+    return;
+  }
+
   function fail() {
     _babylonLoadState = 'failed';
     const q = _babylonQueue.splice(0);
@@ -176,7 +198,7 @@ function startSim() {
   resetMobileNav(!!Game.civC);
 
   requestAnimationFrame(() => {
-    Game.renderer = new Renderer(document.getElementById('map-canvas'), Game.map);
+    Game.renderer = new Renderer3D(document.getElementById('map-canvas'), Game.map);
     Game.timeline = new TimelineRenderer(document.getElementById('timeline-canvas'), Game.maxYear);
 
     document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
