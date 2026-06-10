@@ -1,0 +1,1027 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<title>AEON — 3D Battle (Babylon.js POC)</title>
+
+<!-- AEON display/UI fonts (same as the main app) -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+
+<!--
+  Babylon.js 6.x via CDN — NO build step.  Pinned to 6.49.0 (last 6.x) on
+  jsDelivr so this stays a plain HTML file you can double-click or drop on
+  Netlify.  The UMD bundles expose a global `BABYLON`; the loaders bundle
+  registers the glTF/GLB importer used by SceneLoader.ImportMeshAsync().
+
+  Swap for the rolling-latest 6.x at cdn.babylonjs.com if you prefer:
+      https://cdn.babylonjs.com/babylon.js
+      https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js
+  (those track the newest release, which may move past 6.x over time).
+-->
+<script src="https://cdn.jsdelivr.net/npm/babylonjs@6.49.0/babylon.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/babylonjs-loaders@6.49.0/babylonjs.loaders.min.js"></script>
+
+<style>
+  /* AEON palette — kept in sync with css/style.css :root */
+  :root{
+    --bg-deep:#0a0c12; --bg-mid:#141823; --bg-light:#1e2330; --border:#2d3344;
+    --border-lt:#3a4255; --text:#d8dde8; --text-dim:#8b96ac; --text-bright:#fff;
+    --accent:#d4af37; --accent-lt:#f0d066; --good:#54c27a; --bad:#e0584f;
+    --side-a:#4a90e2; --side-b:#e74c3c;
+    --font-display:'Cinzel',Georgia,serif; --font-ui:'Rajdhani','Segoe UI',sans-serif;
+    --font-mono:'Share Tech Mono',monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{width:100%;height:100%;overflow:hidden;background:var(--bg-deep);
+    font-family:var(--font-ui);color:var(--text);}
+  #renderCanvas{position:fixed;inset:0;width:100%;height:100%;display:block;
+    touch-action:none;outline:none;}
+
+  /* ---- HTML overlay UI (NOT in-scene) ---- */
+  .ui{position:fixed;z-index:10;pointer-events:none;}
+  .card{
+    position:fixed;top:16px;min-width:190px;padding:12px 16px;
+    background:linear-gradient(180deg,rgba(20,24,35,.92),rgba(10,12,18,.92));
+    border:1px solid var(--border);border-radius:10px;backdrop-filter:blur(6px);
+    box-shadow:0 10px 30px rgba(0,0,0,.45);
+  }
+  #card-A{left:16px;border-top:3px solid var(--side-a);}
+  #card-B{right:16px;border-top:3px solid var(--side-b);text-align:right;}
+  .card .cname{font-family:var(--font-display);font-weight:700;font-size:18px;letter-spacing:1px;}
+  .card .csub{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin:2px 0 8px;}
+  .card .carmy{font-family:var(--font-mono);font-size:26px;color:var(--text-bright);line-height:1;}
+  .card .carmy small{font-size:12px;color:var(--text-dim);}
+  .card .cweapon{margin-top:8px;font-size:11px;letter-spacing:1px;color:var(--accent-lt);min-height:14px;}
+
+  #banner{
+    top:18px;left:50%;transform:translateX(-50%);text-align:center;
+    background:rgba(10,12,18,.78);border:1px solid var(--border);
+    border-left:3px solid var(--accent);border-right:3px solid var(--accent);
+    padding:8px 26px;border-radius:8px;
+  }
+  #banner .phase{font-family:var(--font-display);font-weight:800;letter-spacing:6px;
+    font-size:20px;color:var(--accent);text-transform:uppercase;}
+  #banner .yr{font-size:11px;color:var(--text-dim);letter-spacing:2px;}
+
+  #log{
+    left:16px;bottom:16px;width:300px;max-height:172px;overflow:hidden;
+    background:rgba(10,12,18,.72);border:1px solid var(--border);border-radius:8px;
+    padding:10px 12px;font-size:12px;line-height:1.55;
+  }
+  #log .lt{color:var(--text-dim);}
+  #log .lt b{color:var(--accent-lt);}
+
+  #controls{
+    position:fixed;z-index:11;right:16px;bottom:16px;
+    display:flex;flex-direction:column;gap:8px;align-items:flex-end;pointer-events:auto;
+  }
+  #controls .row{display:flex;gap:8px;align-items:center;background:rgba(10,12,18,.72);
+    border:1px solid var(--border);border-radius:8px;padding:8px 10px;}
+  #controls label{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);}
+  #controls select{background:var(--bg-light);color:var(--text);border:1px solid var(--border);
+    border-radius:5px;padding:5px 7px;font-family:var(--font-ui);font-weight:600;font-size:13px;}
+  #controls .tgl{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text);}
+  #replay{font-family:var(--font-display);font-weight:700;letter-spacing:3px;cursor:pointer;
+    background:linear-gradient(180deg,var(--accent-lt),var(--accent));color:#1a1407;border:none;
+    padding:11px 22px;border-radius:6px;font-size:14px;box-shadow:0 6px 18px rgba(212,175,55,.3);}
+  #replay:hover{transform:translateY(-1px);}
+
+  /* Special-weapon screen flash (mirrors renderer.flashEffect in render.js) */
+  #flash{position:fixed;inset:0;z-index:9;background:#fff;opacity:0;pointer-events:none;}
+
+  #loading{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;
+    flex-direction:column;gap:14px;background:var(--bg-deep);}
+  #loading h1{font-family:var(--font-display);font-weight:800;letter-spacing:14px;font-size:54px;
+    color:var(--accent);text-shadow:0 0 30px rgba(212,175,55,.4);}
+  #loading p{color:var(--text-dim);letter-spacing:2px;font-size:13px;}
+  .hidden{display:none!important;}
+
+  @media (max-width:640px){
+    .card{min-width:140px;padding:9px 11px;top:10px;}
+    #card-A{left:10px;} #card-B{right:10px;}
+    .card .carmy{font-size:20px;} .card .cname{font-size:15px;}
+    #banner{top:96px;padding:6px 16px;} #banner .phase{font-size:15px;letter-spacing:4px;}
+    #log{width:46%;bottom:10px;left:10px;max-height:120px;font-size:11px;}
+    #controls{bottom:10px;right:10px;}
+  }
+</style>
+</head>
+<body>
+<canvas id="renderCanvas"></canvas>
+
+<!-- ============ HTML OVERLAY ============ -->
+<div class="ui card" id="card-A">
+  <div class="cname" id="A-name">Side A</div>
+  <div class="csub" id="A-sub">—</div>
+  <div class="carmy"><span id="A-army">0</span> <small>troops</small></div>
+  <div class="cweapon" id="A-weapon"></div>
+</div>
+<div class="ui card" id="card-B">
+  <div class="cname" id="B-name">Side B</div>
+  <div class="csub" id="B-sub">—</div>
+  <div class="carmy"><span id="B-army">0</span> <small>troops</small></div>
+  <div class="cweapon" id="B-weapon"></div>
+</div>
+
+<div class="ui card" id="banner">
+  <div class="phase" id="phase">Spawn</div>
+  <div class="yr" id="yr">FINAL BATTLE</div>
+</div>
+
+<div class="ui" id="log"></div>
+
+<div id="controls">
+  <div class="row">
+    <label for="biomeSel">Biome</label>
+    <select id="biomeSel"></select>
+  </div>
+  <div class="row">
+    <span class="tgl"><input type="checkbox" id="wA" checked /> A weapon</span>
+    <span class="tgl"><input type="checkbox" id="wB" /> B weapon</span>
+  </div>
+  <button id="replay">⚔ Replay Battle</button>
+</div>
+
+<div id="flash"></div>
+
+<div id="loading">
+  <h1>AEON</h1>
+  <p id="loadmsg">Initialising 3D battle…</p>
+</div>
+
+<script>
+/* ============================================================================
+ *  AEON · battle3d.html  —  Babylon.js 3D Battle Visualiser  (PROOF OF CONCEPT)
+ * ============================================================================
+ *
+ *  WHAT THIS IS
+ *  ------------
+ *  A standalone, no-build demo of a Babylon.js replacement for the 2D-canvas
+ *  `BattleVisualizer` in js/battle.js.  It runs entirely on its own with a
+ *  MOCK battle outcome so you can iterate on the 3D look in isolation.  It does
+ *  NOT import or modify any AEON file.
+ *
+ *  INTEGRATION PATH  (how this eventually plugs into the live sim)
+ *  --------------------------------------------------------------
+ *  Today, js/main.js → startBattle() does:
+ *
+ *      Game.battleOutcome = Game.civC
+ *        ? resolveBattle3(civA, civB, civC, world, rng)
+ *        : resolveBattle(civA, civB, world, rng);
+ *      Game.battle = new BattleVisualizer(Game.renderer, Game.map, Game.civs, Game.battleOutcome);
+ *      Game.battle.start();
+ *
+ *  To switch to 3D, this file becomes (roughly) a `Battle3D` module exporting
+ *  the SAME surface the orchestrator already expects, so main.js barely changes:
+ *
+ *      Game.battle = new Battle3D({
+ *        canvas:  someCanvas,          // a dedicated <canvas> (or reuse #map-canvas)
+ *        civs:    Game.civs,           // each civ: army,color,name,side,focus,race,weapon,weaponUnlocked
+ *        outcome: Game.battleOutcome,  // the object returned by resolveBattle()/resolveBattle3()
+ *        biome:   config.A.biome,      // biome key from BIOMES for the ground
+ *      });
+ *      Game.battle.start();
+ *
+ *  Battle3D keeps the orchestrator's existing contract:
+ *      • .start()      — spawn armies, begin the phase machine
+ *      • .isDone()     — true once phase === 'done'  (battleStep() polls this)
+ *      • .battleLog    — [{year,text}] array consumed by finishGame() for the aftermath
+ *  Instead of being stepped from main.js's gameLoop(), Battle3D owns its own
+ *  engine.runRenderLoop(); when it finishes it calls an onDone() callback that
+ *  the orchestrator wires to finishGame().  The 2D Renderer is simply hidden
+ *  (or its canvas swapped out) while the 3D battle plays, then the aftermath
+ *  screen shows exactly as it does now.
+ *
+ *  Load Babylon lazily (inject these <script> tags only when the first battle
+ *  starts) so the ~3 MB engine never burdens the sim itself.
+ *
+ *  EVERY place real sim data is consumed is tagged `// AEON_DATA_HOOK:`.
+ * ============================================================================ */
+
+(function () {
+  'use strict';
+
+  if (typeof BABYLON === 'undefined') {
+    document.getElementById('loadmsg').textContent =
+      'Babylon.js failed to load from CDN (check your network / the <script> URLs).';
+    return;
+  }
+  const B = BABYLON;
+  const $ = (id) => document.getElementById(id);
+
+  /* ------------------------------------------------------------------------ *
+   * AEON_DATA_HOOK: biome palette.
+   * Verbatim copy of the `color / colorAlt / feature` triples from BIOMES in
+   * js/data.js.  In the integrated build, delete this table and read the live
+   * `BIOMES[biomeKey]` global instead (it carries the same fields).
+   * ------------------------------------------------------------------------ */
+  const BIOME_COLORS = {
+    forest:      { base:'#2d5a3a', alt:'#3a6b47', feature:'#4a7a55' },
+    mountain:    { base:'#5a5a5a', alt:'#6b6b6b', feature:'#888888' },
+    desert:      { base:'#c9a96b', alt:'#d6b878', feature:'#a8893f' },
+    tundra:      { base:'#a8b5c4', alt:'#bcc6d1', feature:'#e0e6ec' },
+    plains:      { base:'#7a9a5a', alt:'#8aaa6a', feature:'#a0c073' },
+    swamp:       { base:'#4a5a3a', alt:'#556a45', feature:'#6a7d4a' },
+    coastal:     { base:'#5a8a6a', alt:'#6a9a78', feature:'#d8c56a' },
+    volcanic:    { base:'#4a3232', alt:'#5a3c3c', feature:'#c43a1a' },
+    jungle:      { base:'#1f4d2b', alt:'#286038', feature:'#3f8a4a' },
+    savanna:     { base:'#9a8a4a', alt:'#aa9a55', feature:'#c0b070' },
+    steppe:      { base:'#8a8a5a', alt:'#999a6a', feature:'#b0b080' },
+    highlands:   { base:'#4a6a4a', alt:'#557a55', feature:'#6a8a5a' },
+    archipelago: { base:'#4a8a7a', alt:'#56998a', feature:'#d4c898' },
+    badlands:    { base:'#8a5a3a', alt:'#9a6a45', feature:'#b07a4a' },
+    taiga:       { base:'#3a5048', alt:'#445a50', feature:'#5a7060' },
+  };
+
+  /* ------------------------------------------------------------------------ *
+   * AEON_DATA_HOOK: focus → unit-type distribution.
+   * Mirrors the `focusPools` map in createUnit() (js/battle.js).  Used to give
+   * each army a silhouette mix (infantry / cavalry / archer / mage).
+   * ------------------------------------------------------------------------ */
+  const FOCUS_UNIT_POOLS = {
+    military:    ['infantry','infantry','infantry','cavalry'],
+    science:     ['archer','archer','mage','infantry'],
+    faith:       ['infantry','infantry','mage','mage'],
+    magic:       ['mage','mage','mage','archer'],
+    industry:    ['infantry','infantry','cavalry','infantry'],
+    trade:       ['archer','infantry','infantry'],
+    naturalism:  ['archer','cavalry','infantry'],
+    exploration: ['cavalry','cavalry','archer','infantry'],
+    diplomacy:   ['infantry','archer'],
+  };
+
+  /* ------------------------------------------------------------------------ *
+   * AEON_DATA_HOOK: civs + outcome.
+   * These two civs and the `outcome` object below STAND IN FOR the real ones.
+   * In the live build, `civs` come straight from Game.civs and `outcome` is the
+   * exact object returned by resolveBattle():
+   *
+   *   { invader, defender, winner, loser,
+   *     invPower, defPower, invRoll, defRoll,
+   *     invBreakdown, defBreakdown,
+   *     winnerCasualtyPct, loserCasualtyPct }
+   *
+   * Each civ carries: army(int), color(hex), name, side('A'|'B'|'C'),
+   *                   focus, race, weapon, weaponUnlocked.
+   * (resolveBattle3() returns a `threeWay:true` variant with an `entries[]`
+   *  array — see the note in Battle3D.start() for the 1v1v1 hook.)
+   * ------------------------------------------------------------------------ */
+  const civA = { name:'Aurelian Pact', color:'#4a90e2', side:'A',
+                 race:'humans', focus:'science', weapon:'Trebuchet Corps',
+                 weaponUnlocked:true,  army:14200 };
+  const civB = { name:'Ironhold Clans', color:'#e74c3c', side:'B',
+                 race:'orcs', focus:'military', weapon:'Iron Legion',
+                 weaponUnlocked:false, army:11800 };
+
+  // Stand-in for resolveBattle(): whoever has the larger (army) here "wins".
+  // The real engine factors power/roll/breakdowns — we only need winner/loser
+  // and the casualty fractions for the visualisation.
+  function buildOutcome(a, b) {
+    const aWins = a.army >= b.army;
+    const winner = aWins ? a : b, loser = aWins ? b : a;
+    return {
+      invader:a, defender:b, winner, loser,
+      invPower:a.army, defPower:b.army, invRoll:1, defRoll:1,
+      invBreakdown:{}, defBreakdown:{},
+      // AEON_DATA_HOOK: in the real outcome these come from the battle resolver.
+      winnerCasualtyPct: 0.22 + Math.random()*0.14,   // winner is bloodied…
+      loserCasualtyPct:  1.0,                          // …loser is wiped out
+    };
+  }
+  let outcome = buildOutcome(civA, civB);
+
+  /* ------------------------------------------------------------------------ *
+   * Engine / scene globals
+   * ------------------------------------------------------------------------ */
+  let engine, scene, camera, hemi, dirLight, shadowGen, glow, ground, groundMat;
+  let particleTex = null;          // soft round sprite for all ParticleSystems
+  let soldierTmpl = null;          // { isPlaceholder, glbRoot?, animationGroups? }
+  let buildingTmpl = null;         // { isPlaceholder, glbRoot? }
+  let mageOrbSrc = null;           // shared emissive sphere (instanced for mages)
+  let battle = null;
+  let currentBiome = 'forest';     // AEON_DATA_HOOK: default ground biome (#2d5a3a)
+
+  // small utils
+  const hexC3 = (hex) => B.Color3.FromHexString(hex);
+  const col4  = (hex, a) => { const c = hexC3(hex); return new B.Color4(c.r, c.g, c.b, a == null ? 1 : a); };
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  function formatNum(n) {                       // mirrors formatNum() in battle.js
+    if (!isFinite(n)) return '∞';
+    const a = Math.abs(n);
+    if (a >= 1e9) return (n/1e9).toFixed(1)+'B';
+    if (a >= 1e6) return (n/1e6).toFixed(1)+'M';
+    if (a >= 1e3) return (n/1e3).toFixed(1)+'K';
+    return '' + Math.round(n);
+  }
+
+  /* ========================================================================
+   *  SCENE SETUP
+   * ====================================================================== */
+  function createScene() {
+    engine = new B.Engine($('renderCanvas'), true, { stencil:true, preserveDrawingBuffer:true });
+    scene  = new B.Scene(engine);
+    scene.clearColor = col4('#0a0c12', 1);                 // AEON --bg-deep
+    // Atmospheric depth so distant ranks fade into the night.
+    scene.fogMode = B.Scene.FOGMODE_LINEAR;
+    scene.fogColor = hexC3('#0a0c12');
+    scene.fogStart = 26; scene.fogEnd = 60;
+
+    // ---- Camera: ArcRotate pulled back to frame both armies (~20-unit field)
+    camera = new B.ArcRotateCamera('cam', -Math.PI/2, 1.02, 30, new B.Vector3(0, 1.2, 0), scene);
+    camera.attachControl($('renderCanvas'), true);
+    camera.lowerRadiusLimit = 12;
+    camera.upperRadiusLimit = 64;
+    camera.lowerBetaLimit   = 0.20;
+    camera.upperBetaLimit   = 1.46;                        // don't drop under the ground
+    camera.wheelDeltaPercentage = 0.01;
+    camera.panningSensibility   = 0;                       // lock panning for a stable framing
+
+    // ---- Lights: hemispheric ambient + one directional (the shadow caster)
+    hemi = new B.HemisphericLight('hemi', new B.Vector3(0, 1, 0), scene);
+    hemi.intensity = 0.55;
+    hemi.groundColor = hexC3('#10141d');
+
+    dirLight = new B.DirectionalLight('sun', new B.Vector3(-0.6, -1, 0.45), scene);
+    dirLight.position = new B.Vector3(22, 42, -18);
+    dirLight.intensity = 0.95;
+
+    // ---- Shadows.  PERFORMANCE: 1024 map is plenty for a single field.
+    //   For 200+ soldiers we add the *instance source* meshes (and buildings)
+    //   to the caster list — every InstancedMesh then casts a shadow for free,
+    //   so the caster count stays ~3 regardless of army size.  If you push past
+    //   that, drop to 512, prefer useExponentialShadowMap (no blur), and/or only
+    //   register front-rank casters.
+    shadowGen = new B.ShadowGenerator(1024, dirLight);
+    shadowGen.useBlurExponentialShadowMap = true;
+    shadowGen.blurKernel = 16;
+    shadowGen.darkness = 0.55;
+
+    // Glow makes mage orbs and the special-weapon FX read at distance.
+    glow = new B.GlowLayer('glow', scene);
+    glow.intensity = 0.7;
+
+    particleTex = makeSoftParticleTexture();
+
+    // Shared mage-orb source (emissive). Instanced per mage; never drawn itself.
+    mageOrbSrc = B.MeshBuilder.CreateSphere('mageOrbSrc', { diameter:0.34, segments:6 }, scene);
+    const om = new B.StandardMaterial('mageOrbMat', scene);
+    om.emissiveColor = hexC3('#bfe6ff'); om.diffuseColor = hexC3('#bfe6ff');
+    om.disableLighting = true;
+    mageOrbSrc.material = om; mageOrbSrc.isVisible = false; mageOrbSrc.isPickable = false;
+
+    buildGround(currentBiome);
+  }
+
+  // 64×64 radial-alpha sprite, generated in-code so we ship zero image assets.
+  function makeSoftParticleTexture() {
+    const dt = new B.DynamicTexture('soft', { width:64, height:64 }, scene, false);
+    const ctx = dt.getContext();
+    const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0,   'rgba(255,255,255,1)');
+    g.addColorStop(0.4, 'rgba(255,255,255,0.55)');
+    g.addColorStop(1,   'rgba(255,255,255,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 64);
+    dt.hasAlpha = true; dt.update();
+    return dt;
+  }
+
+  /* ----- Ground: 20×20 GroundMesh tinted by the biome palette --------------
+   * Requirement #2: a GroundMesh whose colour matches AEON's biome system.
+   * We paint a DynamicTexture that re-creates the 2D map look — a base/alt
+   * chequer plus scattered "feature" speckles (same three colours render.js
+   * uses per biome) — which is the procedural-texture route the brief asked for.
+   * (A vertex-colour route is noted at the bottom of this function.)
+   * ----------------------------------------------------------------------- */
+  function buildGround(biomeKey) {
+    currentBiome = BIOME_COLORS[biomeKey] ? biomeKey : 'forest';
+    const pal = BIOME_COLORS[currentBiome];                 // AEON_DATA_HOOK: biome → colours
+
+    if (ground) { ground.dispose(); groundMat && groundMat.dispose(); }
+
+    ground = B.MeshBuilder.CreateGround('ground',
+      { width:20, height:20, subdivisions:24 }, scene);
+    ground.receiveShadows = true;
+    ground.position.y = 0;
+
+    groundMat = new B.StandardMaterial('groundMat', scene);
+    groundMat.diffuseTexture = paintBiomeTexture(pal);
+    groundMat.specularColor = new B.Color3(0.04, 0.04, 0.05);   // matte earth
+    ground.material = groundMat;
+
+    ground.freezeWorldMatrix();   // static — never moves, so skip its matrix recompute
+    groundMat.freeze();
+
+    // VERTEX-COLOUR ALTERNATIVE (if you'd rather skip the texture):
+    //   ground.useVertexColors = true;
+    //   const c = ground.getVerticesData(B.VertexBuffer.PositionKind);
+    //   …write a Color4 per vertex lerping base↔alt by a noise(x,z)… then
+    //   ground.setVerticesData(B.VertexBuffer.ColorKind, colorArray);
+  }
+
+  function paintBiomeTexture(pal) {
+    const S = 1024, cells = 28, cs = S / cells;
+    const dt = new B.DynamicTexture('biomeTex', { width:S, height:S }, scene, true);
+    const ctx = dt.getContext();
+    ctx.fillStyle = pal.base; ctx.fillRect(0, 0, S, S);
+    for (let y = 0; y < cells; y++)
+      for (let x = 0; x < cells; x++)
+        if ((x + y) % 2 === 0) { ctx.fillStyle = pal.alt; ctx.fillRect(x*cs, y*cs, cs, cs); }
+    // feature speckle (trees/rocks/etc. abstracted to dots, like render.js)
+    for (let i = 0; i < 1500; i++) {
+      ctx.globalAlpha = 0.18 + Math.random()*0.30;
+      ctx.fillStyle = Math.random() < 0.55 ? pal.feature : pal.alt;
+      const s = 2 + Math.random()*6;
+      ctx.fillRect(Math.random()*S, Math.random()*S, s, s);
+    }
+    ctx.globalAlpha = 1; dt.update();
+    return dt;
+  }
+
+  /* ========================================================================
+   *  ASSET LOADERS  (Mixamo soldier · Kenney building)
+   *  Both use the SAME ImportMeshAsync pattern and BOTH fall back to a
+   *  primitive so the scene always renders even with no /assets present.
+   * ====================================================================== */
+
+  /*
+   * SOLDIER — Mixamo GLB workflow  (drop the result at  ./assets/soldier.glb )
+   * -------------------------------------------------------------------------
+   *  1. mixamo.com → pick a character (e.g. "Erika"/"Knight") → it loads in a
+   *     default A-POSE.  Leave it A-pose; do NOT force T-pose — Mixamo rigs and
+   *     retargets from A-pose and the GLB skinning bakes fine either way.
+   *  2. Grab the clips you'll want per battle phase and download each as FBX:
+   *        • "Idle"                     → spawn phase
+   *        • "Walking" / "Run" (IN PLACE)→ march phase   ← tick "In Place" so the
+   *          root doesn't translate; WE move the mesh (Vector3.Lerp), not the clip
+   *        • "Sword And Shield Slash" / "Great Sword Slash" → clash phase
+   *        • "Dying" / "Falling Back Death" → death on attrition
+   *     FBX export settings:  Format = FBX Binary,  Skin = "With Skin" for the
+   *     first/base download and "Without Skin" for the extra animation-only
+   *     clips,  FPS = 30,  No Keyframe Reduction (smoother), Pose = T-pose is
+   *     NOT required — keep the default.
+   *  3. Convert FBX → GLB (pick one):
+   *        • Blender: Import FBX → set unit scale, Apply All Transforms →
+   *          Export glTF 2.0 (.glb), +Y up, "Bake Animation" + "Skinning" ON,
+   *          merge all the FBX clips into ONE .glb so they arrive as separate
+   *          AnimationGroups we can switch between.
+   *        • FBX2glTF (github.com/facebookincubator/FBX2glTF):  FBX2glTF -b -o soldier soldier.fbx
+   *        • Babylon Sandbox (sandbox.babylonjs.com) → drag FBX in → export GLB.
+   *  4. SCALE: Mixamo is centimetres (≈100× too big in metres). Either fix the
+   *     scale in Blender before export, or scale the root by 0.01 on import
+   *     (see the heuristic below).  Target height ≈ 1.6 units to match our ground.
+   */
+  async function loadSoldier() {
+    try {
+      // AEON_DATA_HOOK: placeholder path './assets/soldier.glb'
+      const r = await B.SceneLoader.ImportMeshAsync('', './assets/', 'soldier.glb', scene);
+      const root = r.meshes[0];                 // glTF "__root__" transform node
+      root.name = 'soldierGLBRoot';
+      // Auto-downscale a centimetre-scale Mixamo export to ~1.6 units tall.
+      const bb = root.getHierarchyBoundingVectors();
+      const h = bb.max.y - bb.min.y;
+      if (h > 8) root.scaling.scaleInPlace(1.6 / h);
+      root.setEnabled(false);                   // hidden template; we clone per unit
+
+      // Requirement #3: play the first AnimationGroup (idle/walk) from the GLB.
+      if (r.animationGroups && r.animationGroups.length) {
+        r.animationGroups.forEach(g => g.stop());
+        r.animationGroups[0].start(true);       // loop the first clip on the template
+      }
+      log('Loaded soldier.glb (' + (r.animationGroups||[]).length + ' anim groups).');
+      return { isPlaceholder:false, glbRoot:root, animationGroups:r.animationGroups || [] };
+    } catch (e) {
+      // Requirement #3 fallback: capsule so the scene still renders with no GLB.
+      console.info('[battle3d] ./assets/soldier.glb not found → capsule placeholders.', e.message);
+      return { isPlaceholder:true };
+    }
+  }
+
+  /*
+   * BUILDING — Kenney asset workflow  ( ./assets/building.glb )
+   * -------------------------------------------------------------------------
+   *  Kenney packs are CC0 (public domain — no attribution required). Good fits:
+   *        • "Tower Defense Kit"  — towers/keeps, reads great top-down
+   *        • "Castle Kit"         — walls, keeps, gatehouses (fortress vibe)
+   *        • "City Kit (Commercial)" / "Medieval Town" — civilian settlements
+   *     Download from kenney.nl/assets.  They ship as OBJ + GLTF + FBX.
+   *  Export workflow:
+   *        • If a .gltf/.glb is already in the pack, just rename/copy a building
+   *          to ./assets/building.glb and you're done.
+   *        • Otherwise import the OBJ into Blender, set materials, and Export
+   *          glTF 2.0 (.glb).  Combine a few props (keep + wall + flag) into one
+   *          building.glb if you want a richer settlement silhouette.
+   *  In the integrated build you'd pick the mesh per civ.focus/tier and tint it
+   *  to civ.color (vertex paint, a team-colour material slot, or a decal).
+   */
+  async function loadBuilding() {
+    try {
+      const r = await B.SceneLoader.ImportMeshAsync('', './assets/', 'building.glb', scene);
+      const root = r.meshes[0];
+      root.name = 'buildingGLBRoot';
+      const bb = root.getHierarchyBoundingVectors();
+      const h = bb.max.y - bb.min.y;
+      if (h > 8) root.scaling.scaleInPlace(2.4 / h);
+      root.setEnabled(false);
+      log('Loaded building.glb.');
+      return { isPlaceholder:false, glbRoot:root };
+    } catch (e) {
+      // Requirement #4 fallback: a coloured box per building.
+      console.info('[battle3d] ./assets/building.glb not found → box placeholders.', e.message);
+      return { isPlaceholder:true };
+    }
+  }
+
+  /* ========================================================================
+   *  BATTLE3D — phase state machine mirroring BattleVisualizer (js/battle.js)
+   *      spawn → march → clash → resolve → done
+   * ====================================================================== */
+  class Battle3D {
+    constructor(outcome) {
+      this.outcome  = outcome;
+      this.invader  = outcome.invader;
+      this.defender = outcome.defender;
+      this.winner   = outcome.winner;
+      this.loser    = outcome.loser;
+      this.bySide   = { [this.invader.side]:this.invader, [this.defender.side]:this.defender };
+
+      this.units = [];
+      this.buildings = [];
+      this.startCount = {};          // side → spawned unit count (for army scaling)
+      this.specialFired = {};        // side → bool
+      this.phase = 'spawn';
+      this.phaseTime = 0;            // seconds in current phase
+      this.t = 0;                    // total seconds (bob clock)
+      this.killAcc = 0;
+      this.battleLog = [];           // {year,text} — consumed by finishGame() upstream
+      this._id = 0;
+      this._glbShadowCasters = 0;
+      this._endYear = 1000;          // AEON_DATA_HOOK: Game.maxYear / map.endYear
+      this._done = false;
+      this._activeParticles = [];
+    }
+
+    start() {
+      // AEON_DATA_HOOK (1v1v1): if (outcome.threeWay) iterate outcome.entries
+      //   (each {civ, casualtyPct, fellAt}) and spawn three armies into three
+      //   sectors instead of two facing rows. Same phase machine otherwise.
+
+      // sources (one per side, instanced) — colour comes from civ.color
+      this.sources = {
+        [this.invader.side]:  makeSoldierSource(this.invader),
+        [this.defender.side]: makeSoldierSource(this.defender),
+      };
+
+      this.groundY = soldierTmpl.isPlaceholder ? 0.7 : 0.0;  // capsule centre vs GLB feet
+
+      this.spawnSide(this.invader, -1);   // A on the left  (x ≈ -7 → marches +x)
+      this.spawnSide(this.defender, +1);  // B on the right (x ≈ +7 → marches -x)
+      this.spawnBuildings(this.invader, -1);
+      this.spawnBuildings(this.defender, +1);
+
+      // attrition targets derived from the resolver's casualty fractions
+      const sW = this.startCount[this.winner.side];
+      const sL = this.startCount[this.loser.side];
+      // AEON_DATA_HOOK: winner survivors = army × (1 − winnerCasualtyPct)
+      this.winnerSurvivors = Math.max(1, Math.round(sW * (1 - this.outcome.winnerCasualtyPct)));
+      this.loserFloor      = Math.max(1, Math.round(sL * 0.12));   // clash ends here → resolve
+      this.winnerKillChance = clamp(this.outcome.winnerCasualtyPct * 0.85, 0.05, 0.85);
+
+      this.log(`${this.invader.name} fields ${formatNum(this.invader.army)} soldiers.`);
+      this.log(`${this.defender.name} fields ${formatNum(this.defender.army)} soldiers.`);
+      this.log(`${this.invader.name} marches to attack.`);
+      this.updateUI();
+    }
+
+    /* ----- spawning -------------------------------------------------------- */
+    spawnSide(civ, dir) {
+      const n = armyToUnits(civ.army);          // AEON_DATA_HOOK: army → instances
+      this.startCount[civ.side] = n;
+      const cols = 6, spacing = 1.05;
+      const rows = Math.ceil(n / cols);
+      let k = 0;
+      for (let r = 0; r < rows && k < n; r++) {
+        for (let c = 0; c < cols && k < n; c++) {
+          const z = (c - (cols-1)/2) * spacing * 1.15;
+          const x = dir * (7 - r * spacing);
+          const type = pickType(civ.focus, k);  // AEON_DATA_HOOK: focus → unit type
+          const u = this.spawnOne(civ, new B.Vector3(x, this.groundY, z), type);
+          u.home = u.mesh.position.clone();
+          u.marchTarget = new B.Vector3(dir * (0.8 + r*0.10), this.groundY, z + (Math.random()-0.5)*0.3);
+          this.units.push(u);
+          k++;
+        }
+      }
+    }
+
+    spawnOne(civ, pos, type) {
+      const source = this.sources[civ.side];
+      let mesh;
+      if (source.type === 'instanced') {
+        // PERFORMANCE: InstancedMesh — shares geometry+material with its source,
+        // so 200+ soldiers cost ~1 draw call per side and inherit its shadow.
+        mesh = source.src.createInstance('u' + (this._id++));
+      } else {
+        // GLB path: clone the imported hierarchy. For true hundreds you'd move to
+        // Baked Vertex Animation (see perf notes) — clones of skinned meshes are
+        // far heavier than instances. We also cap GLB shadow casters.
+        mesh = soldierTmpl.glbRoot.clone('u' + (this._id++));
+        mesh.setEnabled(true);
+        // AEON_DATA_HOOK: tint this clone to civ.color (team material slot / decal).
+        if (this._glbShadowCasters < 80) { shadowGen.addShadowCaster(mesh); this._glbShadowCasters++; }
+      }
+      mesh.position.copyFrom(pos);
+      const baseScale = applyTypeScale(mesh, type);
+
+      const u = { mesh, baseScale, side:civ.side, civ, type,
+                  alive:true, dying:false, dead:false, deathT:0, bob:Math.random()*6.28,
+                  scatter:null, orb:null };
+
+      // Mages get a glowing orb (placeholder flavour for the 'mage' silhouette).
+      if (type === 'mage' && source.type === 'instanced') {
+        const orb = mageOrbSrc.createInstance('orb' + this._id);
+        orb.parent = mesh; orb.position.y = 1.15;
+        u.orb = orb;
+      }
+      return u;
+    }
+
+    spawnBuildings(civ, dir) {
+      for (let i = 0; i < 3; i++) {
+        let b;
+        if (buildingTmpl && !buildingTmpl.isPlaceholder) {
+          b = buildingTmpl.glbRoot.clone('bld' + civ.side + i);
+          b.setEnabled(true);
+          b.position.set(dir * 9.3, 0, (i - 1) * 2.6);
+        } else {
+          // Requirement #4 fallback: a box in the civ's colour.
+          const ht = 2 + i * 0.5;
+          b = B.MeshBuilder.CreateBox('bld' + civ.side + i, { width:1.4, height:ht, depth:1.4 }, scene);
+          const m = new B.StandardMaterial('bm' + civ.side + i, scene);
+          const c = hexC3(civ.color);                       // AEON_DATA_HOOK: civ.color
+          m.diffuseColor = c.scale(0.7);
+          m.emissiveColor = c.scale(0.06);
+          m.specularColor = new B.Color3(0.05,0.05,0.05);
+          b.material = m;
+          b.position.set(dir * 9.3, ht/2, (i - 1) * 2.6);
+        }
+        b.receiveShadows = true;
+        shadowGen.addShadowCaster(b);
+        this.buildings.push(b);
+      }
+    }
+
+    /* ----- per-frame step (driven by the render loop) ---------------------- */
+    step(dt) {
+      if (this._done) return;
+      dt = Math.min(dt, 0.05);            // clamp huge frame gaps (tab refocus)
+      this.t += dt; this.phaseTime += dt;
+
+      if      (this.phase === 'spawn')   this.stepSpawn();
+      else if (this.phase === 'march')   this.stepMarch(dt);
+      else if (this.phase === 'clash')   this.stepClash(dt);
+      else if (this.phase === 'resolve') this.stepResolve(dt);
+
+      this.processDying(dt);
+      this.updateUI();
+    }
+
+    stepSpawn() {
+      // brief muster, idle in place, then advance
+      if (this.phaseTime > 0.8) { this.phase = 'march'; this.phaseTime = 0; }
+    }
+
+    stepMarch(dt) {
+      // fire specials shortly after the advance begins (mirrors stepMarch timing)
+      for (const civ of [this.invader, this.defender]) {
+        // AEON_DATA_HOOK: civ.weaponUnlocked gates the special cinematic
+        if (civ.weaponUnlocked && !this.specialFired[civ.side] && this.phaseTime > 1.0) {
+          this.specialFired[civ.side] = true;
+          this.fireSpecial(civ);
+        }
+      }
+      let arrived = 0, alive = 0;
+      for (const u of this.units) {
+        if (!u.alive || u.dying) continue;
+        alive++;
+        B.Vector3.LerpToRef(u.mesh.position, u.marchTarget, clamp(dt*1.8, 0, 1), u.mesh.position);
+        u.mesh.position.y = this.groundY + Math.sin(this.t*6 + u.bob) * 0.06;  // march bob
+        if (B.Vector3.Distance(u.mesh.position, u.marchTarget) < 0.45) arrived++;
+      }
+      if (this.phaseTime > 5 || (alive > 0 && arrived / alive > 0.7)) {
+        this.phase = 'clash'; this.phaseTime = 0;
+        this.log('The armies clash!');
+      }
+    }
+
+    stepClash(dt) {
+      // tight melee jitter
+      for (const u of this.units) {
+        if (!u.alive || u.dying) continue;
+        const push = (u.side === this.invader.side) ? 1 : -1;
+        u.mesh.position.x += Math.sin(this.t*10 + u.bob) * 0.004 * push;
+        u.mesh.position.y = this.groundY + Math.abs(Math.sin(this.t*9 + u.bob)) * 0.05;
+      }
+      // attrition paced by a fixed tick; rates derived from casualty fractions
+      this.killAcc += dt;
+      const TICK = 0.05;
+      while (this.killAcc >= TICK) {
+        this.killAcc -= TICK;
+        if (this.aliveOf(this.loser) > this.loserFloor) this.killRandom(this.loser);
+        if (this.aliveOf(this.winner) > this.winnerSurvivors && Math.random() < this.winnerKillChance)
+          this.killRandom(this.winner);
+      }
+      if (this.aliveOf(this.loser) <= this.loserFloor || this.phaseTime > 7) {
+        this.phase = 'resolve'; this.phaseTime = 0;
+        this.log(`${this.winner.name} ${this.outcome.threeWay ? 'stands triumphant' : 'routs the enemy'}!`);
+        // the rout: every surviving loser falls
+        for (const u of this.units) if (u.civ === this.loser && u.alive) this.kill(u);
+      }
+    }
+
+    stepResolve(dt) {
+      // winner fans out to occupy the whole field
+      for (const u of this.units) {
+        if (u.civ !== this.winner || !u.alive || u.dying) continue;
+        if (!u.scatter) u.scatter = new B.Vector3((Math.random()*2-1)*9, this.groundY, (Math.random()*2-1)*9);
+        B.Vector3.LerpToRef(u.mesh.position, u.scatter, clamp(dt*0.8, 0, 1), u.mesh.position);
+        u.mesh.position.y = this.groundY + Math.sin(this.t*5 + u.bob) * 0.05;
+      }
+      if (this.phaseTime > 3.2) { this.phase = 'done'; this._done = true; }
+    }
+
+    /* ----- attrition helpers ---------------------------------------------- */
+    aliveOf(civ) { let n = 0; for (const u of this.units) if (u.civ === civ && u.alive) n++; return n; }
+    killRandom(civ) {
+      const pool = this.units.filter(u => u.civ === civ && u.alive && !u.dying);
+      if (pool.length) this.kill(pool[(Math.random()*pool.length)|0]);
+    }
+    kill(u) { if (u.alive) { u.alive = false; u.dying = true; u.deathT = 0; } }
+
+    processDying(dt) {
+      for (const u of this.units) {
+        if (!u.dying || u.dead) continue;
+        u.deathT += dt;
+        const k = Math.max(0, 1 - u.deathT / 0.45);
+        u.mesh.scaling.set(u.baseScale.x*k, u.baseScale.y*k, u.baseScale.z*k);
+        u.mesh.position.y = this.groundY - (1 - k) * 0.5;     // sink into the ground
+        if (k <= 0) {
+          u.dead = true;
+          u.mesh.setEnabled(false);
+          if (u.orb) u.orb.setEnabled(false);
+        }
+      }
+    }
+
+    /* ----- special weapon cinematic --------------------------------------- *
+     * Requirement #7 — ParticleSystem ring expanding white → civ → gold → red,
+     * matching fireSpecial() in battle.js (which also flashes the screen and
+     * kills ~16% of the enemy at the blast).
+     * -------------------------------------------------------------------- */
+    fireSpecial(civ) {
+      // AEON_DATA_HOOK: civ.weapon name for the log line
+      this.log(`${civ.name} unleashes ${civ.weapon}!`);
+
+      const at = new B.Vector3(0, 0.9, 0);    // clash point
+      flashScreen(0.7);                        // mirrors renderer.flashEffect = 0.65
+
+      const ps = new B.ParticleSystem('special_' + civ.side, 800, scene);
+      ps.particleTexture = particleTex;
+      ps.emitter = at.clone();
+      ps.minEmitBox = B.Vector3.Zero();
+      ps.maxEmitBox = B.Vector3.Zero();
+      ps.blendMode = B.ParticleSystem.BLENDMODE_ADD;
+      // radial burst, mostly in the ground plane → an expanding RING
+      ps.startDirectionFunction = (wm, dir) => {
+        const a = Math.random() * Math.PI * 2;
+        dir.x = Math.cos(a); dir.y = Math.random() * 0.5; dir.z = Math.sin(a);
+      };
+      ps.minLifeTime = 0.5;  ps.maxLifeTime = 1.1;
+      ps.minSize = 0.25;     ps.maxSize = 0.95;
+      ps.minEmitPower = 6;   ps.maxEmitPower = 15;  ps.updateSpeed = 0.02;
+      ps.gravity = new B.Vector3(0, -3, 0);
+      // AEON_DATA_HOOK: ring colour ramp == fireSpecial()'s
+      //   ['#ffffff', civ.color, '#ffe14d', '#c04040']
+      ps.addColorGradient(0.00, col4('#ffffff', 1));
+      ps.addColorGradient(0.33, col4(civ.color, 1));
+      ps.addColorGradient(0.66, col4('#ffe14d', 1));
+      ps.addColorGradient(0.90, col4('#c04040', 1));
+      ps.addColorGradient(1.00, col4('#c04040', 0));
+      ps.emitRate = 0;
+      ps.manualEmitCount = 800;     // one-shot burst
+      ps.disposeOnStop = true;
+      ps.start();
+      setTimeout(() => ps.stop(), 60);
+      this._activeParticles.push(ps);
+
+      // AEON_DATA_HOOK: kill ~16% of the enemy near the blast (== fireSpecial())
+      const enemies = this.units.filter(u => u.side !== civ.side && u.alive && !u.dying);
+      const killCount = Math.floor(enemies.length * 0.16);
+      for (let i = 0; i < killCount; i++) {
+        const v = enemies[(Math.random()*enemies.length)|0];
+        if (v && v.alive) this.kill(v);
+      }
+    }
+
+    /* ----- UI + log -------------------------------------------------------- */
+    updateUI() {
+      for (const side of ['A','B']) {
+        const civ = this.bySide[side]; if (!civ) continue;
+        const start = this.startCount[side] || 1;
+        const liveArmy = Math.round(civ.army * this.aliveOf(civ) / start);   // AEON_DATA_HOOK
+        $(side + '-name').textContent = civ.name;
+        $(side + '-name').style.color = civ.color;
+        $(side + '-sub').textContent  = (civ.race || '') + ' · ' + (civ.focus || '');
+        $(side + '-army').textContent = formatNum(liveArmy);
+        $(side + '-weapon').textContent =
+          civ.weaponUnlocked ? ('⚡ ' + (civ.weapon || 'Special')) : '';
+      }
+      $('phase').textContent = this.phase;
+      $('yr').textContent = 'FINAL BATTLE · Y' + this._endYear;
+    }
+
+    log(text) {
+      this.battleLog.push({ year:this._endYear, text });
+      renderLog(this.battleLog);
+    }
+
+    /* ----- teardown (for replay / integration handoff) -------------------- */
+    dispose() {
+      for (const u of this.units) { if (u.orb) u.orb.dispose(); u.mesh.dispose(); }
+      for (const s of Object.values(this.sources || {})) if (s.src) s.src.dispose();
+      for (const b of this.buildings) b.dispose();
+      for (const ps of this._activeParticles) { try { ps.dispose(); } catch (e) {} }
+      this.units.length = 0; this.buildings.length = 0;
+    }
+
+    isDone() { return this.phase === 'done'; }
+  }
+
+  /* ========================================================================
+   *  UNIT-SOURCE + TYPE HELPERS
+   * ====================================================================== */
+
+  // One instancing source per side, coloured by civ.color. Its instances all
+  // share this geometry/material AND inherit its single shadow caster.
+  function makeSoldierSource(civ) {
+    if (soldierTmpl && !soldierTmpl.isPlaceholder) return { type:'glb' };   // clone path
+
+    // Requirement #3 fallback: capsule (CapsuleGeometry via MeshBuilder).
+    const m = B.MeshBuilder.CreateCapsule('src_' + civ.side,
+      { height:1.4, radius:0.25, tessellation:6, capSubdivisions:2 }, scene);
+    const mat = new B.StandardMaterial('srcMat_' + civ.side, scene);
+    const c = hexC3(civ.color);                       // AEON_DATA_HOOK: civ.color
+    mat.diffuseColor = c;
+    mat.emissiveColor = c.scale(0.14);
+    mat.specularColor = new B.Color3(0.08, 0.08, 0.08);
+    m.material = mat;
+    m.isVisible = false;        // source itself never drawn…
+    m.isPickable = false;
+    // …but an invisible mesh still casts shadows, and instances DON'T inherit the
+    // source's transform — so park the source underground or its own capsule-shadow
+    // would land at world-centre with no soldier under it.
+    m.position.y = -50;
+    shadowGen.addShadowCaster(m);   // every instance casts its shadow via this one caster
+    return { type:'instanced', src:m, mat };
+  }
+
+  // AEON_DATA_HOOK: focus → unit type (index into FOCUS_UNIT_POOLS)
+  function pickType(focus, i) {
+    const pool = FOCUS_UNIT_POOLS[focus] || ['infantry'];
+    return pool[i % pool.length];
+  }
+
+  // Give each unit type a distinct silhouette via per-instance scaling.
+  function applyTypeScale(mesh, type) {
+    let s;
+    switch (type) {
+      case 'cavalry': s = new B.Vector3(1.25, 1.05, 1.55); break;  // broad/long
+      case 'archer':  s = new B.Vector3(0.85, 1.05, 0.85); break;  // slight
+      case 'mage':    s = new B.Vector3(0.90, 1.12, 0.90); break;  // tall (+orb)
+      default:        s = new B.Vector3(1, 1, 1);                  // infantry
+    }
+    mesh.scaling.copyFrom(s);
+    return s.clone();
+  }
+
+  // AEON_DATA_HOOK: army(int) → rendered unit count.
+  // PERFORMANCE: keep a sane on-screen cap; one instance "represents" many
+  // soldiers. Bump the cap once you've moved soldiers to instances/VAT.
+  function armyToUnits(army) {
+    return clamp(Math.round(army / 220), 14, 64);
+  }
+
+  /* ========================================================================
+   *  OVERLAY HELPERS (HTML, not in-scene)
+   * ====================================================================== */
+  function flashScreen(toAlpha) {
+    const f = $('flash');
+    f.style.transition = 'none';
+    f.style.opacity = String(toAlpha);
+    // next frame: fade out (cosmetic only — decoupled from the deterministic sim)
+    requestAnimationFrame(() => {
+      f.style.transition = 'opacity 0.5s ease';
+      f.style.opacity = '0';
+    });
+  }
+  function renderLog(logArr) {
+    const el = $('log');
+    el.innerHTML = logArr.slice(-6).map(e =>
+      `<div class="lt"><b>Y${e.year}</b> · ${escapeHtml(e.text)}</div>`).join('');
+  }
+  function log(text) { /* pre-battle messages */ renderLog([{ year:'—', text }]); }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+  }
+
+  /* ========================================================================
+   *  BOOTSTRAP
+   * ====================================================================== */
+  async function boot() {
+    createScene();
+
+    $('loadmsg').textContent = 'Loading assets…';
+    // Load templates up front (both gracefully fall back to primitives).
+    soldierTmpl  = await loadSoldier();
+    buildingTmpl = await loadBuilding();
+
+    startBattle3D();
+
+    // Battle3D owns its own render loop (unlike the canvas BattleVisualizer,
+    // which is stepped from main.js's gameLoop()). On integration, fire an
+    // onDone() callback here that the orchestrator binds to finishGame().
+    let last = performance.now();
+    engine.runRenderLoop(() => {
+      const now = performance.now();
+      const dt = (now - last) / 1000; last = now;
+      if (battle) battle.step(dt);
+      scene.render();
+    });
+
+    window.addEventListener('resize', () => engine.resize());
+    populateBiomeSelect();
+    wireControls();
+    $('loading').classList.add('hidden');
+  }
+
+  function startBattle3D() {
+    if (battle) battle.dispose();
+    // AEON_DATA_HOOK: rebuild from current (mock) civ choices → outcome
+    civA.weaponUnlocked = $('wA').checked;
+    civB.weaponUnlocked = $('wB').checked;
+    outcome = buildOutcome(civA, civB);
+    battle = new Battle3D(outcome);
+    battle.start();
+  }
+
+  function populateBiomeSelect() {
+    const sel = $('biomeSel');
+    Object.keys(BIOME_COLORS).forEach(k => {
+      const o = document.createElement('option');
+      o.value = k; o.textContent = k[0].toUpperCase() + k.slice(1);
+      if (k === currentBiome) o.selected = true;
+      sel.appendChild(o);
+    });
+  }
+
+  function wireControls() {
+    $('biomeSel').addEventListener('change', e => buildGround(e.target.value));
+    $('replay').addEventListener('click', startBattle3D);
+    // weapon toggles take effect on the next replay (mirrors a fresh outcome)
+    $('wA').addEventListener('change', () => {});
+    $('wB').addEventListener('change', () => {});
+  }
+
+  /* ========================================================================
+   *  PERFORMANCE NOTES  (for the 200+ soldier production build)
+   *  ------------------------------------------------------------------------
+   *  • INSTANCING: render each side from ONE source mesh via createInstance()
+   *    (done above for the capsule path). Instances share geometry+material and
+   *    collapse to ~1 draw call per side. For STATIC fields, thin instances
+   *    (mesh.thinInstanceAdd) are even cheaper, but they can't carry an
+   *    independent skeleton — see VAT below.
+   *  • SKELETAL ANIMATION AT SCALE: cloning a skinned Mixamo mesh per soldier is
+   *    expensive. Use Baked Vertex Animation: VertexAnimationBaker bakes the
+   *    idle/walk/attack/death clips into a texture, then a BakedVertexAnimationManager
+   *    drives thousands of *instances* through those frames on the GPU — each
+   *    instance can sit at a different frame/clip. This is the path to hundreds.
+   *  • LOD: soldier.addLODLevel(28, lowPolyMesh); soldier.addLODLevel(48, null)
+   *    to swap distant ranks for a low-poly (or billboard impostor) and cull the
+   *    farthest. Buildings get LODs too.
+   *  • SHADOW BUDGET: one DirectionalLight + a 1024 map. Register the instance
+   *    SOURCES (not every instance) as casters so cost stays flat with army size.
+   *    Push past ~1024 only if needed; prefer useExponentialShadowMap (blur off)
+   *    and consider casting from front ranks only.
+   *  • FREEZE STATICS: ground.freezeWorldMatrix(); groundMat.freeze(); and
+   *    scene.freezeActiveMeshes() once spawning settles (unfreeze on dispose).
+   *  • PARTICLES: cap counts, reuse one soft texture (done), BLENDMODE_ADD, and
+   *    disposeOnStop so special-weapon bursts clean themselves up.
+   * ====================================================================== */
+
+  window.addEventListener('DOMContentLoaded', boot);
+})();
+</script>
+</body>
+</html>
