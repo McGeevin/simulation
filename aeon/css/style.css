@@ -1004,9 +1004,11 @@ body.mobile .timeline-footer { display: none !important; }
     padding-bottom: 54px;     /* clear the fixed bottom nav */
   }
 
-  /* Always-visible compact strips: name + the three headline stats */
+  /* Portrait: hide the side panels by default so the map gets the full
+     screen. Each side is reachable on demand via the bottom nav, which
+     expands it into the detail overlay below (.mob-active). */
   body.mobile .civ-panel {
-    display: flex !important;
+    display: none !important;
     flex-direction: row !important;
     position: static !important;
     width: 100% !important;
@@ -1053,6 +1055,7 @@ body.mobile .timeline-footer { display: none !important; }
 
   /* Tap a nav button → that side expands into a full detail overlay */
   body.mobile .civ-panel.mob-active {
+    display: flex !important;
     position: fixed !important;
     top: auto !important;
     bottom: 54px !important;
