@@ -35,12 +35,13 @@ body {
   background: var(--bg-deep);
   color: var(--text);
   height: 100vh;
+  height: 100dvh;   /* fit the *visible* mobile viewport, not the area behind the URL bar */
   overflow: hidden;
   font-size: 15px;
   -webkit-font-smoothing: antialiased;
 }
 
-.screen { display: none; width: 100vw; height: 100vh; flex-direction: column; }
+.screen { display: none; width: 100vw; height: 100vh; height: 100dvh; flex-direction: column; }
 .screen.active { display: flex; }
 
 /* Custom scrollbars */
@@ -398,6 +399,7 @@ select:focus, input:focus {
 
 .map-container { flex: 1; position: relative; background: #05070b; overflow: hidden; }
 #map-canvas {
+  position: absolute; inset: 0;
   width: 100%; height: 100%; display: block;
   image-rendering: pixelated; image-rendering: crisp-edges;
 }
