@@ -254,13 +254,25 @@ class Renderer3D {
     const scene = this._scene;
     const { width: mw, height: mh, tiles } = this.map;
 
-    // Source templates (hidden, parked off-screen)
+    // Source templates (hidden, parked off-screen). Instances can't carry
+    // their own material, so per-instance colour goes through the reserved
+    // "color" instanced buffer, which StandardMaterial applies automatically.
+    const decMat = new B.StandardMaterial('decMat', scene);
+    decMat.diffuseColor  = new B.Color3(1, 1, 1);
+    decMat.specularColor = new B.Color3(0, 0, 0);
+
     const treeT = B.MeshBuilder.CreateCylinder('treeT',
       { height: 0.45, diameterTop: 0.0, diameterBottom: 0.55, tessellation: 5 }, scene);
+    treeT.material = decMat;
+    treeT.registerInstancedBuffer('color', 4);
+    treeT.instancedBuffers.color = new B.Color4(1, 1, 1, 1);
     treeT.isVisible = false; treeT.position.y = -50;
 
     const rockT = B.MeshBuilder.CreateBox('rockT',
       { width: 0.30, height: 0.22, depth: 0.28 }, scene);
+    rockT.material = decMat;
+    rockT.registerInstancedBuffer('color', 4);
+    rockT.instancedBuffers.color = new B.Color4(1, 1, 1, 1);
     rockT.isVisible = false; rockT.position.y = -50;
 
     let count = 0;
@@ -293,11 +305,7 @@ class Renderer3D {
         const inst = tmpl.createInstance(`dec${count}`);
         inst.position.set(wx, yOff, wz);
         inst.rotation.y = Math.random() * Math.PI * 2;
-
-        const dm = new B.StandardMaterial(`dm${count}`, scene);
-        dm.diffuseColor  = col;
-        dm.specularColor = new B.Color3(0, 0, 0);
-        inst.material = dm;
+        inst.instancedBuffers.color = new B.Color4(col.r, col.g, col.b, 1);
 
         count++;
       }
@@ -444,23 +452,25 @@ class Renderer3D {
     const tmpl = B.MeshBuilder.CreateCapsule('citTmpl', {
       height: 0.13, radius: 0.038, tessellation: 4, subdivisions: 1,
     }, this._scene);
+    const mat = new B.StandardMaterial('citMat', this._scene);
+    mat.diffuseColor  = new B.Color3(1, 1, 1);
+    mat.specularColor = new B.Color3(0, 0, 0);
+    tmpl.material = mat;
+    tmpl.registerInstancedBuffer('color', 4);
+    tmpl.instancedBuffers.color = new B.Color4(1, 1, 1, 1);
     tmpl.isVisible = false;
     tmpl.position.y = -50;
     this._citizenTemplate = tmpl;
   }
 
   _syncCitizens() {
-    const cits  = this.citizens.slice(0, 60);
-    const scene = this._scene;
-    const B     = BABYLON;
+    const cits = this.citizens.slice(0, 60);
+    const B    = BABYLON;
 
     // Grow instance pool as needed
     while (this._citizenInstances.length < cits.length) {
       const idx  = this._citizenInstances.length;
       const inst = this._citizenTemplate.createInstance(`cit${idx}`);
-      const mat  = new B.StandardMaterial(`citm${idx}`, scene);
-      mat.specularColor = new B.Color3(0, 0, 0);
-      inst.material = mat;
       this._citizenInstances.push(inst);
     }
 
@@ -471,8 +481,9 @@ class Renderer3D {
         inst.position.x = this._tx(c.x);
         inst.position.z = this._tz(c.y);
         inst.position.y = 0.065 + Math.sin(c.bob || 0) * 0.012;
-        inst.material.diffuseColor = B.Color3.FromHexString(
+        const col = B.Color3.FromHexString(
           c.color && c.color.length === 7 ? c.color : '#ffffff');
+        inst.instancedBuffers.color = new B.Color4(col.r, col.g, col.b, 1);
         inst.isVisible = true;
       } else {
         inst.isVisible = false;
@@ -548,6 +559,12 @@ class Renderer3D {
     const B    = BABYLON;
     const tmpl = B.MeshBuilder.CreateBox('unitTmpl',
       { width: 0.17, height: 0.20, depth: 0.17 }, this._scene);
+    const mat = new B.StandardMaterial('unitMat', this._scene);
+    mat.diffuseColor  = new B.Color3(1, 1, 1);
+    mat.specularColor = new B.Color3(0.25, 0.25, 0.25);
+    tmpl.material = mat;
+    tmpl.registerInstancedBuffer('color', 4);
+    tmpl.instancedBuffers.color = new B.Color4(1, 1, 1, 1);
     tmpl.isVisible = false;
     tmpl.position.y = -50;
     this._unitTemplate = tmpl;
@@ -555,15 +572,11 @@ class Renderer3D {
 
   _syncBattleUnits() {
     const units = this.battleUnits;
-    const scene = this._scene;
     const B     = BABYLON;
 
     while (this._unitInstances.length < units.length) {
       const idx  = this._unitInstances.length;
       const inst = this._unitTemplate.createInstance(`unit${idx}`);
-      const mat  = new B.StandardMaterial(`um${idx}`, scene);
-      mat.specularColor = new B.Color3(0.25, 0.25, 0.25);
-      inst.material = mat;
       this._unitInstances.push(inst);
     }
 
@@ -574,8 +587,9 @@ class Renderer3D {
         inst.position.x = this._tx(u.x);
         inst.position.z = this._tz(u.y);
         inst.position.y = 0.10;
-        inst.material.diffuseColor = B.Color3.FromHexString(
+        const col = B.Color3.FromHexString(
           u.color && u.color.length === 7 ? u.color : '#aaaaaa');
+        inst.instancedBuffers.color = new B.Color4(col.r, col.g, col.b, 1);
         inst.isVisible = true;
       } else {
         inst.isVisible = false;
@@ -589,12 +603,24 @@ class Renderer3D {
   _buildParticlePool() {
     const B     = BABYLON;
     const scene = this._scene;
+
+    // Procedural radial-glow flare so no network texture is fetched.
+    const flareTex = new B.DynamicTexture('flareTex', 64, scene, false);
+    const fctx = flareTex.getContext();
+    const grd  = fctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grd.addColorStop(0,   'rgba(255,255,255,1)');
+    grd.addColorStop(0.4, 'rgba(255,255,255,0.55)');
+    grd.addColorStop(1,   'rgba(255,255,255,0)');
+    fctx.fillStyle = grd;
+    fctx.fillRect(0, 0, 64, 64);
+    flareTex.hasAlpha = true;
+    flareTex.update();
+    this._flareTex = flareTex;
+
     for (let i = 0; i < 10; i++) {
       const ps = new B.ParticleSystem(`ps${i}`, 30, scene);
-      // Use a simple inline data URI so no network request is needed
-      ps.particleTexture = new B.Texture(
-        'https://assets.babylonjs.com/textures/flare.png', scene
-      );
+      ps.particleTexture = flareTex;
+      ps.blendMode     = B.ParticleSystem.BLENDMODE_ADD;
       ps.emitter       = new B.Vector3(0, 0.5, 0);
       ps.minSize       = 0.06; ps.maxSize = 0.20;
       ps.minLifeTime   = 0.35; ps.maxLifeTime = 0.85;
