@@ -23,9 +23,47 @@ function weaponPowerFactor(w) {
   return Math.max(1.2, m * 0.6 + 0.4); // dampened
 }
 
-// Produce the full, ordered list of factors that build a civ's
-// battle power. Returns { base, baseDetail, factors:[{label,mult,detail}], final }.
-function battlePowerBreakdown(civ, defender = false) {
+// Government command doctrine — each government fights differently. `atk`
+// applies when attacking, `def` when defending, the mean in a three-way
+// melee. Designed values (not in data.js) to give each a battle identity.
+const GOV_DOCTRINE = {
+  monarchy:    { atk: 1.05, def: 1.05, note: 'unified royal command' },
+  republic:    { atk: 0.95, def: 1.10, note: 'deliberate, defensive institutions' },
+  theocracy:   { atk: 1.08, def: 1.08, note: 'zealous, obedient ranks' },
+  tribal:      { atk: 1.15, def: 0.95, note: 'ferocious raiders, weak at holding ground' },
+  hive:        { atk: 1.06, def: 1.16, note: 'fearless and perfectly coordinated' },
+  democracy:   { atk: 0.90, def: 1.12, note: 'reluctant to attack, stubborn in defense' },
+  empire:      { atk: 1.18, def: 1.04, note: 'a state machine built for conquest' },
+  autocracy:   { atk: 1.20, def: 0.98, note: 'vast conscript armies driven hard' },
+  technocracy: { atk: 1.07, def: 1.09, note: 'superior command and control' },
+  federation:  { atk: 0.95, def: 1.13, note: 'pooled reserves, very hard to topple' },
+  horde:       { atk: 1.22, def: 0.90, note: 'all attack, no defense' },
+};
+
+// Numerical edge with a super-linear (Lanchester-style) kicker on top of
+// the linear troop count already in the base — being able to flank and
+// envelop. Clamped so it informs the result without dominating it.
+function numbersFactor(myArmy, enemyArmy) {
+  if (!enemyArmy || enemyArmy <= 0) return 1;
+  return clamp(Math.pow(myArmy / enemyArmy, 0.35), 0.72, 1.45);
+}
+
+// Over-mobilization: an army that swallows too much of its own populace is
+// a brittle mass of conscripts; a lean professional force fights better.
+function mobilizationFactor(civ) {
+  const mob = civ.army / Math.max(1, civ.population);
+  if (mob <= 0.12) return 1.06;
+  if (mob <= 0.25) return 1.00;
+  if (mob <= 0.45) return 0.92;
+  return 0.82;
+}
+
+// Produce the full, ordered list of factors that build a civ's battle
+// power. Returns { base, baseDetail, factors:[{label,mult,detail}], final }.
+// ctx carries the realism qualifiers that depend on the matchup:
+//   { role:'invader'|'defender'|'ffa', enemyArmy, enemyBiome }
+function battlePowerBreakdown(civ, defender = false, ctx = {}) {
+  const role = ctx.role || (defender ? 'defender' : 'invader');
   const factors = [];
   const ageMult = civ.weaponTechLevel;
   let power = civ.army * ageMult;
@@ -38,10 +76,21 @@ function battlePowerBreakdown(civ, defender = false) {
     factors.push({ label, mult, detail });
   };
 
+  // Racial martial tradition — soldier-for-soldier combat skill. (Previously
+  // computed for the sim but never applied to the battle itself.)
+  add('Martial prowess', getMod(civ, 'military'), `${civ.raceData.name} warrior tradition`);
+
   // Focus
   if (civ.focus === 'military') add('Military doctrine', 1.30, 'Standing army & drilled ranks');
   if (civ.focus === 'magic')   add('Battle-magic', 1 + Math.min(0.5, civ.magic / 500), `Magic reserve ${formatNum(civ.magic)}`);
   if (civ.focus === 'faith')   add('Holy fervor', 1 + civ.morale / 300, `Morale ${Math.round(civ.morale)}`);
+
+  // Government war doctrine (offense vs defense lean)
+  const doc = GOV_DOCTRINE[civ.government];
+  if (doc) {
+    const gm = role === 'invader' ? doc.atk : role === 'defender' ? doc.def : (doc.atk + doc.def) / 2;
+    add('War doctrine', gm, `${civ.govData.name} — ${doc.note}`);
+  }
 
   // Government synergy
   if (civ.government === 'theocracy' && civ.focus === 'faith') add('Theocratic zeal', 1.15, 'Theocracy + Faith synergy');
@@ -50,13 +99,32 @@ function battlePowerBreakdown(civ, defender = false) {
   add('Morale', 0.5 + civ.morale / 200, `Morale ${Math.round(civ.morale)} / 100`);
   add('Stability', 0.7 + civ.stability / 333, `Stability ${Math.round(civ.stability)} / 100`);
 
+  // Numerical balance vs the enemy (super-linear kicker)
+  if (ctx.enemyArmy) {
+    const nf = numbersFactor(civ.army, ctx.enemyArmy);
+    add(nf >= 1 ? 'Numerical superiority' : 'Outnumbered', nf,
+        `${formatNum(civ.army)} vs ~${formatNum(Math.round(ctx.enemyArmy))} enemy troops`);
+  }
+
+  // Mobilization sustainability
+  const mob = mobilizationFactor(civ);
+  add(mob >= 1 ? 'Professional army' : 'Over-mobilized', mob,
+      `${(civ.army / Math.max(1, civ.population) * 100).toFixed(0)}% of the populace under arms`);
+
   // Defender advantages
   if (defender) {
     add('Home defense', 1.2, 'Fighting on home soil');
     if (civ.biome === 'mountain') add('Mountain fastness', 1.25, 'Mountain terrain');
     if (civ.biome === 'tundra' || civ.biome === 'swamp') add('Harsh terrain', 1.15, `${BIOMES[civ.biome].name} terrain`);
+    add('Acclimatization', biomeFitness(civ), `${civ.raceData.name} suited to ${BIOMES[civ.biome].name}`);
     const def = getMod(civ, 'defense');
     add('Fortification', def, 'Race / focus / biome defense');
+  }
+
+  // Invader fighting in a climate hostile to their race
+  if (role === 'invader' && ctx.enemyBiome) {
+    const pen = civ.raceData.biomePenalty && civ.raceData.biomePenalty[ctx.enemyBiome];
+    if (pen) add('Hostile climate', pen, `${civ.raceData.name} ill-suited to ${BIOMES[ctx.enemyBiome].name}`);
   }
 
   // Special weapon
@@ -94,8 +162,10 @@ function resolveBattle(civA, civB, world, rng) {
   else if (bAgg > aAgg) { invader = civB; defender = civA; }
   else { invader = rng.chance(0.5) ? civA : civB; defender = (invader === civA) ? civB : civA; }
 
-  const invBreakdown = battlePowerBreakdown(invader, false);
-  const defBreakdown = battlePowerBreakdown(defender, true);
+  const invBreakdown = battlePowerBreakdown(invader, false,
+    { role: 'invader', enemyArmy: defender.army, enemyBiome: defender.biome });
+  const defBreakdown = battlePowerBreakdown(defender, true,
+    { role: 'defender', enemyArmy: invader.army });
   const invPower = Math.floor(invBreakdown.final);
   const defPower = Math.floor(defBreakdown.final);
 
@@ -132,7 +202,10 @@ function resolveBattle3(civA, civB, civC, world, rng) {
   const entries = civs.map(civ => {
     // Everyone defends their own realm on three fronts, so all get the
     // defender treatment — terrain & fortification still differentiate them.
-    const breakdown = battlePowerBreakdown(civ, true);
+    // Each faces the other two, so "the enemy" is their combined average.
+    const others = civs.filter(c => c !== civ);
+    const enemyArmy = others.reduce((s, c) => s + c.army, 0) / Math.max(1, others.length);
+    const breakdown = battlePowerBreakdown(civ, true, { role: 'ffa', enemyArmy });
     const power = Math.floor(breakdown.final);
     const luck = rng.range(0.90, 1.10);
     return { civ, breakdown, power, luck, roll: power * luck, agg: aggressionFor(civ) };

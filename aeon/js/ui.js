@@ -311,6 +311,31 @@ function buildPowerNarrative(o) {
   }
   lines.push(`Going into battle, <strong>${escapeHtml(o.invader.name)}</strong> had ${moraleDesc(o.invader)} and ${stabDesc(o.invader)}. <strong>${escapeHtml(o.defender.name)}</strong> had ${moraleDesc(o.defender)} and ${stabDesc(o.defender)}.`);
 
+  // 2b. Numbers, mobilization & racial martial tradition
+  {
+    const segs = [];
+    const numRatio = o.invader.army / Math.max(1, o.defender.army);
+    if (numRatio >= 1.25)      segs.push(`<strong>${escapeHtml(o.invader.name)}</strong> brought the larger host — ${formatNum(o.invader.army)} to ${formatNum(o.defender.army)} (${numRatio.toFixed(1)}:1), letting it flank and envelop`);
+    else if (numRatio <= 0.8)  segs.push(`<strong>${escapeHtml(o.defender.name)}</strong> fielded the larger host — ${formatNum(o.defender.army)} to ${formatNum(o.invader.army)}`);
+    else                       segs.push(`The two armies were closely matched in size (${formatNum(o.invader.army)} vs ${formatNum(o.defender.army)})`);
+
+    const mobNote = (civ) => {
+      const mob = civ.army / Math.max(1, civ.population);
+      if (mob > 0.45) return `<strong>${escapeHtml(civ.name)}</strong> had stripped its towns to fill the ranks (${(mob * 100).toFixed(0)}% under arms) — numerous but brittle`;
+      if (mob <= 0.12) return `<strong>${escapeHtml(civ.name)}</strong> fielded a lean professional army`;
+      return null;
+    };
+    const mobs = [mobNote(o.invader), mobNote(o.defender)].filter(Boolean);
+    if (mobs.length) segs.push(mobs.join('; '));
+
+    const invMil = getMod(o.invader, 'military'), defMil = getMod(o.defender, 'military');
+    if (Math.abs(invMil - defMil) >= 0.2) {
+      const harder = invMil > defMil ? o.invader : o.defender;
+      segs.push(`Soldier-for-soldier, <strong>${escapeHtml(harder.name)}</strong>'s ${escapeHtml(RACES[harder.race].name)} were the deadlier warriors`);
+    }
+    lines.push(segs.join('. ') + '.');
+  }
+
   // 3. Aggressor + terrain
   let contextLine = `<strong>${escapeHtml(o.invader.name)}</strong> was the aggressor (belligerence ${o.aAgg >= o.bAgg ? o.aAgg : o.bAgg} vs ${o.aAgg >= o.bAgg ? o.bAgg : o.aAgg}), pressing into <strong>${escapeHtml(o.defender.name)}</strong>'s ${escapeHtml(BIOMES[o.defender.biome].name)} homeland.`;
   if (o.defender.biome === 'mountain')  contextLine += ` The mountain peaks channeled the invaders into killing grounds.`;
@@ -390,6 +415,16 @@ function buildPowerNarrative3(o) {
   }).join('; ');
   lines.push(`State of nations going into battle — ${stateSnap}.`);
 
+  // 3b. Numbers & racial martial tradition
+  {
+    const armyOrder = [...o.entries].sort((a, b) => b.civ.army - a.civ.army);
+    lines.push(`By raw numbers: <strong>${escapeHtml(armyOrder[0].civ.name)}</strong> (${formatNum(armyOrder[0].civ.army)}), then <strong>${escapeHtml(armyOrder[1].civ.name)}</strong> (${formatNum(armyOrder[1].civ.army)}) and <strong>${escapeHtml(armyOrder[2].civ.name)}</strong> (${formatNum(armyOrder[2].civ.army)}).`);
+    const milOrder = [...o.entries].sort((a, b) => getMod(b.civ, 'military') - getMod(a.civ, 'military'));
+    if (getMod(milOrder[0].civ, 'military') - getMod(milOrder[2].civ, 'military') >= 0.2) {
+      lines.push(`Soldier-for-soldier, <strong>${escapeHtml(milOrder[0].civ.name)}</strong>'s ${escapeHtml(RACES[milOrder[0].civ.race].name)} were the deadliest warriors on the field.`);
+    }
+  }
+
   // 4. Power order and outcome
   lines.push(`A three-way war decided the fate of the world. On raw computed power: <strong>${escapeHtml(byPower[0].civ.name)}</strong> (${formatNum(byPower[0].power)}), <strong>${escapeHtml(byPower[1].civ.name)}</strong> (${formatNum(byPower[1].power)}), then <strong>${escapeHtml(byPower[2].civ.name)}</strong> (${formatNum(byPower[2].power)}).`);
 
@@ -424,7 +459,7 @@ function renderAftermathPower(outcome) {
       <h3 class="pb-title">How the battle was decided</h3>
       <div class="pb-narrative">${buildPowerNarrative3(outcome)}</div>
       <div class="pb-grid pb-grid-3">${cols}</div>
-      <p class="pb-foot">Battle power = troops × tech-age arms, then multiplied by doctrine, morale, stability, terrain, fortification and any special weapon. In a three-way war the highest roll after a ±10% "fog of war" swing conquers the world.</p>
+      <p class="pb-foot">Battle power = troops × tech-age arms, then multiplied by racial martial prowess, focus & government war doctrine, morale, stability, relative numbers, mobilization, home terrain & fortification, and any special weapon. In a three-way war the highest roll after a ±10% "fog of war" swing conquers the world.</p>
     `;
     return;
   }
@@ -436,7 +471,7 @@ function renderAftermathPower(outcome) {
       ${renderPowerColumn(outcome.invader, outcome.invBreakdown, outcome.invRoll, outcome.invLuck, outcome.winner === outcome.invader)}
       ${renderPowerColumn(outcome.defender, outcome.defBreakdown, outcome.defRoll, outcome.defLuck, outcome.winner === outcome.defender)}
     </div>
-    <p class="pb-foot">Battle power = troops × tech-age arms, then multiplied by doctrine, morale, stability, terrain, fortification and any special weapon. A final ±10% "fog of war" roll decides close fights.</p>
+    <p class="pb-foot">Battle power = troops × tech-age arms, then multiplied by racial martial prowess, focus & government war doctrine, morale, stability, relative numbers, mobilization, home terrain & fortification, and any special weapon. A final ±10% "fog of war" roll decides close fights.</p>
   `;
 }
 
