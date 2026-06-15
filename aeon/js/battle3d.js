@@ -340,6 +340,29 @@ function buildRaceTemplate(civ) {
     const m2=src(B.MeshBuilder.CreateBox('fluke_'+S,{width:0.5,height:0.05,depth:0.18},scene),stdMat('fluke_'+S,mix3(bodyCol,hexC3('#3a7ad0'),0.4)),false); def(m2,[0,0.03,0]);
   }
   if (ex.leds) { const m=src(B.MeshBuilder.CreateBox('led_'+S,{size:0.07},scene),stdMat('led_'+S,civC,{emissive:civC,disableLighting:true}),false); def(m,[0,bodyY+0.12,bodyR*0.9]); def(m,[0.12,bodyY-0.05,bodyR*0.9]); def(m,[-0.12,bodyY-0.05,bodyR*0.9]); }
+
+  // ---- Tech-age weapon, carried in the right hand (Stone → Stellar) ----
+  const wAge=civ.techAge|0, wx=armX+0.08, wy=bodyY-0.02, wz=bodyR+0.12;
+  const steel=hexC3('#9a9da4'), woodC=hexC3('#6b4a2f'), gunMetal=hexC3('#2c2f36');
+  if (wAge<=0) {
+    const m=src(B.MeshBuilder.CreateCylinder('wp_'+S,{height:0.5,diameterTop:0.17,diameterBottom:0.07,tessellation:6},scene),stdMat('wpm_'+S,hexC3('#7a5a3a')),false);
+    def(m,[wx,wy+0.12,wz],[1,1,1],[0.45,0,0]);
+  } else if (wAge===1) {
+    const sh=src(B.MeshBuilder.CreateCylinder('wp_'+S,{height:1.15,diameter:0.05,tessellation:6},scene),stdMat('wpm_'+S,woodC),false); def(sh,[wx,wy+0.28,wz],[1,1,1],[0.18,0,0]);
+    const tp=src(B.MeshBuilder.CreateCylinder('wt_'+S,{height:0.22,diameterTop:0,diameterBottom:0.1,tessellation:6},scene),stdMat('wtm_'+S,hexC3('#c08a3a'),{metallic:true}),false); def(tp,[wx,wy+0.92,wz+0.04],[1,1,1],[0.18,0,0]);
+  } else if (wAge<=3) {
+    const bl=src(B.MeshBuilder.CreateBox('wp_'+S,{width:0.07,height:0.64,depth:0.03},scene),stdMat('wpm_'+S,steel,{metallic:true}),false); def(bl,[wx,wy+0.34,wz],[1,1,1],[0.22,0,0]);
+    const gd=src(B.MeshBuilder.CreateBox('wg_'+S,{width:0.24,height:0.05,depth:0.07},scene),stdMat('wgm_'+S,hexC3('#6b5a2f')),false); def(gd,[wx,wy+0.04,wz],[1,1,1],[0.22,0,0]);
+  } else if (wAge<=5) {
+    const br=src(B.MeshBuilder.CreateCylinder('wp_'+S,{height:1.05,diameter:0.05,tessellation:6},scene),stdMat('wpm_'+S,gunMetal,{metallic:true}),false); def(br,[wx,wy+0.2,wz+0.06],[1,1,1],[1.35,0,0]);
+    const st=src(B.MeshBuilder.CreateBox('ws_'+S,{width:0.06,height:0.3,depth:0.08},scene),stdMat('wsm_'+S,woodC),false); def(st,[wx,wy+0.02,wz-0.2],[1,1,1],[1.35,0,0]);
+  } else if (wAge<=7) {
+    const rb=src(B.MeshBuilder.CreateBox('wp_'+S,{width:0.06,height:0.72,depth:0.12},scene),stdMat('wpm_'+S,gunMetal,{metallic:true}),false); def(rb,[wx,wy+0.16,wz+0.04],[1,1,1],[1.4,0,0]);
+  } else {
+    const rb=src(B.MeshBuilder.CreateBox('wp_'+S,{width:0.07,height:0.62,depth:0.1},scene),stdMat('wpm_'+S,gunMetal,{metallic:true}),false); def(rb,[wx,wy+0.16,wz+0.04],[1,1,1],[1.4,0,0]);
+    const cl=src(B.MeshBuilder.CreateCylinder('wc_'+S,{height:0.3,diameter:0.11,tessellation:8},scene),stdMat('wcm_'+S,civC,{emissive:civC,disableLighting:true}),false); def(cl,[wx,wy+0.42,wz+0.1],[1,1,1],[1.4,0,0]);
+  }
+
   return { type:'procedural', profile:p, partDefs:defs, owned, mats:ownedMats, topY };
 }
 
@@ -742,6 +765,7 @@ class Battle3D {
     }
     if (this.phaseTime>5||(alive>0&&arrived/alive>0.7)) {
       this.phase='clash'; this.phaseTime=0; this.log('The armies clash!');
+      if (typeof Sfx!=='undefined') Sfx.clash();
     }
   }
 
@@ -821,6 +845,7 @@ class Battle3D {
 
   fireSpecial(civ) {
     this.log(`${civ.name} unleashes ${civ.weapon||'their special weapon'}!`);
+    if (typeof Sfx!=='undefined') Sfx.special();
     flashScreen(0.7);
     const at=new B.Vector3(0,0.9,0);
     const ps=new B.ParticleSystem('special_'+civ.side,800,scene);

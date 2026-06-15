@@ -112,6 +112,26 @@ function init() {
   const rndBtn = document.getElementById('randomize-btn');
   if (rndBtn) rndBtn.addEventListener('click', randomizeTeams);
 
+  // Sound toggle (reflects persisted mute state).
+  const soundBtn = document.getElementById('sound-toggle');
+  if (soundBtn) {
+    if (typeof Sfx !== 'undefined' && Sfx.isMuted()) soundBtn.textContent = '🔇';
+    soundBtn.addEventListener('click', () => {
+      if (typeof Sfx === 'undefined') return;
+      Sfx.unlock();
+      soundBtn.textContent = Sfx.toggle() ? '🔇' : '🔊';
+    });
+  }
+
+  // Copy a plain-text run summary to the clipboard.
+  const copyBtn = document.getElementById('copy-summary-btn');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', () => {
+      const txt = buildRunSummary();
+      if (txt) copyToClipboard(txt).then(() => showToast('📋 Run summary copied to clipboard'));
+    });
+  }
+
   initMobile();
 
   document.querySelectorAll('.speed-btn').forEach(btn => {
@@ -131,6 +151,8 @@ function init() {
 }
 
 function startSim() {
+  if (typeof Sfx !== 'undefined') Sfx.unlock(); // first user gesture → enable audio
+
   const config = readConfig();
   Game.config = config;
 
@@ -320,6 +342,7 @@ function simStep(dt) {
     const log = (side, year, text, tag) => {
       logEvent(side, year, text, tag);
       if (Game.timeline) Game.timeline.addEvent(year, tag, side);
+      if (tag === 'tech' && typeof Sfx !== 'undefined') Sfx.ageUp();
     };
 
     tickAll(Game.year, log);
@@ -337,6 +360,7 @@ function startBattle() {
   if (Game.phase === 'battle') return;
   Game.phase = 'battle';
   Game.running = true;
+  if (typeof Sfx !== 'undefined') Sfx.battleStart();
 
   Game.battleOutcome = Game.civC
     ? resolveBattle3(Game.civA, Game.civB, Game.civC, Game.world, Game.rng)
@@ -405,6 +429,9 @@ function finishGame() {
 
   // Capture battle log before async delay (Battle3D stays alive until after this)
   const battleLogSnapshot = (Game.battle && Game.battle.battleLog) ? Game.battle.battleLog.slice() : [];
+  Game._battleLog = battleLogSnapshot; // also used by the clipboard summary
+
+  if (typeof Sfx !== 'undefined') Sfx.victory();
 
   setTimeout(() => {
     const titleEl = document.getElementById('winner-title');
@@ -450,6 +477,32 @@ function finalStatCard(civ) {
     <div class="stat"><span>Gold</span><span>${formatNum(civ.gold)}</span></div>
     <div class="stat"><span>Territory</span><span>${formatNum(civ.territory)}</span></div>
   </div>`;
+}
+
+// Build a shareable plain-text recap of the finished run.
+function buildRunSummary() {
+  const o = Game.battleOutcome;
+  if (!o || !o.winner) return '';
+  const w = o.winner;
+  const L = [];
+  L.push('AEON — World Simulation Result');
+  L.push(`Seed ${Game.config.world.seed} · ${Game.maxYear} years · ${Game.civs.length}-way`);
+  L.push('');
+  L.push(`🏆 ${w.name} (${RACES[w.race].name}) conquered the world in Year ${Game.maxYear}.`);
+  L.push('');
+  L.push('Final standings:');
+  for (const c of Game.civs) {
+    L.push(`  ${c === w ? '★' : '·'} ${c.name} — ${RACES[c.race].name} · ${FOCUSES[c.focus].name} · ` +
+           `${TECH_AGES[c.techAge].name} Age · Pop ${formatNum(c.population)} · Army ${formatNum(c.army)}`);
+  }
+  if (Game._battleLog && Game._battleLog.length) {
+    L.push('');
+    L.push('Final battle:');
+    for (const e of Game._battleLog) L.push(`  Y${e.year} ${e.text}`);
+  }
+  L.push('');
+  L.push(`Replay: ${location.href}`);
+  return L.join('\n');
 }
 
 document.addEventListener('DOMContentLoaded', init);

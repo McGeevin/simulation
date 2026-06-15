@@ -208,6 +208,7 @@
         </div>
       </div>
       <div class="header-right">
+        <button id="sound-toggle" title="Toggle sound" style="background:none;border:1px solid rgba(255,255,255,.18);border-radius:6px;color:inherit;cursor:pointer;font-size:15px;padding:3px 8px;margin-right:8px;">🔊</button>
         <div class="seed-display">SEED <span id="seed-display">—</span></div>
       </div>
     </header>
@@ -333,7 +334,10 @@
       </details>
 
       <div class="final-stats" id="final-stats"></div>
-      <button id="new-game-btn">NEW SIMULATION</button>
+      <div class="aftermath-actions">
+        <button id="copy-summary-btn">📋 Copy Summary</button>
+        <button id="new-game-btn">NEW SIMULATION</button>
+      </div>
     </div>
   </div>
 
@@ -351,6 +355,7 @@
   <script src="js/render.js"></script>
   <script src="js/battle.js"></script>
   <script src="js/ui.js"></script>
+  <script src="js/audio.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/babylonjs@6.49.0/babylon.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/babylonjs-loaders@6.49.0/babylonjs.loaders.min.js"></script>
   <script src="js/render3d.js"></script>
