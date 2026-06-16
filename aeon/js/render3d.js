@@ -197,20 +197,21 @@ class Renderer3D {
     terrTex.wrapU = terrTex.wrapV = B.Texture.CLAMP_ADDRESSMODE;
     this._terrTex = terrTex;
 
-    // ── Ground mesh for base biome layer ─────────────────────
+    // ── Ground mesh, subdivided + displaced by tile elevation ─
+    const subX = Math.min(mw, 72), subY = Math.min(mh, 36);
     const ground = B.MeshBuilder.CreateGround('ground',
-      { width: 44, height: 18, subdivisions: 2 }, scene);
+      { width: 44, height: 18, subdivisionsX: subX, subdivisionsY: subY, updatable: true }, scene);
     const matGnd = new B.StandardMaterial('matGnd', scene);
     matGnd.diffuseTexture  = baseTex;
     matGnd.specularColor   = new B.Color3(0.04, 0.04, 0.04);
     matGnd.backFaceCulling = false;
     ground.material = matGnd;
     ground.receiveShadows = true;
+    this._displaceMesh(ground, 0);
 
-    // ── Territory overlay mesh (alpha-blended plane above ground) ─
+    // ── Territory overlay mesh — displaced to hug the terrain ─
     const overlay = B.MeshBuilder.CreateGround('overlay',
-      { width: 44, height: 18, subdivisions: 2 }, scene);
-    overlay.position.y = 0.012;
+      { width: 44, height: 18, subdivisionsX: subX, subdivisionsY: subY, updatable: true }, scene);
     const matOvr = new B.StandardMaterial('matOvr', scene);
     matOvr.diffuseTexture = terrTex;
     matOvr.useAlphaFromDiffuseTexture = true;
@@ -219,7 +220,40 @@ class Renderer3D {
     matOvr.specularColor    = new B.Color3(0, 0, 0);
     matOvr.zOffset          = -1;
     overlay.material = matOvr;
+    this._displaceMesh(overlay, 0.03);
     this._overlayMesh = overlay;
+  }
+
+  // Map a tile elevation (0..1) to a world height. Low ground and water
+  // stay flat; only hills and mountains rise. Shared by the terrain mesh
+  // and every object placed on it so nothing floats or sinks.
+  _elevToY(e) { return e <= 0.30 ? 0 : (e - 0.30) * 1.5; }
+
+  _groundY(wx, wz) {
+    const mw = this.map.width, mh = this.map.height;
+    let tx = Math.floor((wx + 22) / 44 * mw);
+    let ty = Math.floor((wz + 9) / 18 * mh);
+    tx = Math.max(0, Math.min(mw - 1, tx));
+    ty = Math.max(0, Math.min(mh - 1, ty));
+    const t = this.map.tiles[ty][tx];
+    if (t.type === 1 || t.river) return 0; // water sits low + flat
+    return this._elevToY(t.elevation || 0);
+  }
+
+  // Push each vertex of a flat ground up to its terrain height, then
+  // recompute normals so lighting follows the new slopes.
+  _displaceMesh(mesh, yOffset) {
+    const B = BABYLON;
+    const pos = mesh.getVerticesData(B.VertexBuffer.PositionKind);
+    if (!pos) return;
+    for (let i = 0; i < pos.length; i += 3) {
+      pos[i + 1] = this._groundY(pos[i], pos[i + 2]) + yOffset;
+    }
+    mesh.updateVerticesData(B.VertexBuffer.PositionKind, pos);
+    const normals = [];
+    B.VertexData.ComputeNormals(pos, mesh.getIndices(), normals);
+    mesh.updateVerticesData(B.VertexBuffer.NormalKind, normals);
+    mesh.refreshBoundingInfo();
   }
 
   _updateTerritoryTexture() {
@@ -247,40 +281,56 @@ class Renderer3D {
   }
 
   // ──────────────────────────────────────────────────────────
-  // DECORATIONS  (trees, rocks — max 300)
+  // DECORATIONS  (biome-specific instanced flora & rock — capped)
   // ──────────────────────────────────────────────────────────
   _buildDecorations() {
     const B     = BABYLON;
     const scene = this._scene;
     const { width: mw, height: mh, tiles } = this.map;
 
-    // Source templates (hidden, parked off-screen). Instances can't carry
-    // their own material, so per-instance colour goes through the reserved
-    // "color" instanced buffer, which StandardMaterial applies automatically.
+    // One shared white material; per-instance colour rides the reserved
+    // "color" instanced buffer, which StandardMaterial applies for free.
     const decMat = new B.StandardMaterial('decMat', scene);
     decMat.diffuseColor  = new B.Color3(1, 1, 1);
     decMat.specularColor = new B.Color3(0, 0, 0);
 
-    const treeT = B.MeshBuilder.CreateCylinder('treeT',
-      { height: 0.45, diameterTop: 0.0, diameterBottom: 0.55, tessellation: 5 }, scene);
-    treeT.material = decMat;
-    treeT.registerInstancedBuffer('color', 4);
-    treeT.instancedBuffers.color = new B.Color4(1, 1, 1, 1);
-    treeT.isVisible = false; treeT.position.y = -50;
+    // Build a hidden, instanceable source mesh once.
+    const mkSrc = (name, builder) => {
+      const m = builder();
+      m.name = name;
+      m.material = decMat;
+      m.registerInstancedBuffer('color', 4);
+      m.instancedBuffers.color = new B.Color4(1, 1, 1, 1);
+      m.isVisible = false; m.isPickable = false; m.position.y = -50;
+      return m;
+    };
+    const T = {
+      trunk:  mkSrc('trunkT',  () => B.MeshBuilder.CreateCylinder('t', { height: 0.34, diameterTop: 0.07, diameterBottom: 0.11, tessellation: 5 }, scene)),
+      canopy: mkSrc('canopyT', () => B.MeshBuilder.CreateSphere('t',   { diameter: 0.5, segments: 6 }, scene)),
+      pine:   mkSrc('pineT',   () => B.MeshBuilder.CreateCylinder('t', { height: 0.6, diameterTop: 0, diameterBottom: 0.42, tessellation: 6 }, scene)),
+      cactus: mkSrc('cactusT', () => B.MeshBuilder.CreateCylinder('t', { height: 0.5, diameter: 0.13, tessellation: 6 }, scene)),
+      rock:   mkSrc('rockT',   () => B.MeshBuilder.CreateBox('t', { width: 0.26, height: 0.18, depth: 0.22 }, scene)),
+      grass:  mkSrc('grassT',  () => B.MeshBuilder.CreateCylinder('t', { height: 0.22, diameterTop: 0, diameterBottom: 0.16, tessellation: 4 }, scene)),
+    };
 
-    const rockT = B.MeshBuilder.CreateBox('rockT',
-      { width: 0.30, height: 0.22, depth: 0.28 }, scene);
-    rockT.material = decMat;
-    rockT.registerInstancedBuffer('color', 4);
-    rockT.instancedBuffers.color = new B.Color4(1, 1, 1, 1);
-    rockT.isVisible = false; rockT.position.y = -50;
+    const FEAT = (typeof window.FEAT !== 'undefined') ? window.FEAT
+      : { NONE:0, TREE:1, DUNE:2, ICE:3, TUFT:4, VINE:5, ROCK:6, LAVA:7, BEACH:8 };
+    const jit = () => (Math.random() - 0.5) * (44 / mw) * 0.6;
+    const C   = (hex) => B.Color3.FromHexString((hex && hex.length === 7) ? hex : '#4a7a55');
 
     let count = 0;
-    const FEAT = (typeof window.FEAT !== 'undefined') ? window.FEAT : { NONE:0,TREE:1,DUNE:2,ICE:3,TUFT:4,VINE:5,ROCK:6,LAVA:7,BEACH:8 };
-    const jit  = () => (Math.random() - 0.5) * (44 / mw) * 0.55;
+    const CAP = 460;
+    const place = (src, wx, wy, wz, col, scl, rotMesh) => {
+      const inst = src.createInstance(`dec${count++}`);
+      inst.position.set(wx, wy, wz);
+      inst.rotation.y = Math.random() * Math.PI * 2;
+      if (scl) inst.scaling.setAll(scl);
+      inst.instancedBuffers.color = new B.Color4(col.r, col.g, col.b, 1);
+      return inst;
+    };
 
-    for (let y = 0; y < mh && count < 300; y++) {
-      for (let x = 0; x < mw && count < 300; x++) {
+    for (let y = 0; y < mh && count < CAP; y++) {
+      for (let x = 0; x < mw && count < CAP; x++) {
         const tile = tiles[y][x];
         if (tile.type === 1) continue; // water
         const feat = tile.feature;
@@ -288,26 +338,31 @@ class Renderer3D {
 
         const wx = this._tcx(x) + jit();
         const wz = this._tcz(y) + jit();
+        const gy = this._groundY(wx, wz);
         const bkey  = tile.biomeKey || tile.biome || 'plains';
         const biome = (typeof BIOMES !== 'undefined' && BIOMES[bkey]) || null;
-        const fHex  = biome ? biome.feature : '#4a7a55';
-        const col   = B.Color3.FromHexString(fHex.length === 7 ? fHex : '#4a7a55');
+        const arch  = (biome && biome.terrain) || 'plains';
+        const leafC = C(biome ? biome.feature : '#4a7a55');
+        const trunkC = C('#5a3f29');
+        const s = 0.85 + Math.random() * 0.5;
 
-        let tmpl = null;
-        let yOff = 0;
-        if (feat === FEAT.TREE || feat === FEAT.VINE || feat === FEAT.TUFT) {
-          tmpl = treeT; yOff = 0.225;
-        } else if (feat === FEAT.ROCK || feat === FEAT.DUNE || feat === FEAT.ICE) {
-          tmpl = rockT; yOff = 0.11;
+        // Tree-like features → biome-appropriate flora.
+        if (feat === FEAT.TREE || feat === FEAT.VINE) {
+          if (arch === 'taiga' || arch === 'tundra' || arch === 'mountain') {
+            place(T.pine, wx, gy + 0.3 * s, wz, leafC.scale(0.9), s);                 // conifer
+          } else if (arch === 'desert' || arch === 'badlands' || arch === 'volcanic') {
+            place(T.cactus, wx, gy + 0.25 * s, wz, C('#5a7a45'), s);                  // cactus / spire
+          } else {
+            place(T.trunk,  wx, gy + 0.17 * s, wz, trunkC, s);                        // broadleaf
+            if (count < CAP) place(T.canopy, wx, gy + 0.42 * s, wz, leafC, s * 1.05);
+          }
+        } else if (feat === FEAT.TUFT) {
+          place(T.grass, wx, gy + 0.11 * s, wz, leafC.scale(1.05), s);               // tuft / reed
+        } else if (feat === FEAT.ROCK || feat === FEAT.DUNE) {
+          place(T.rock, wx, gy + 0.1 * s, wz, C(biome ? biome.feature : '#8a8a8a').scale(0.8), s);
+        } else if (feat === FEAT.ICE) {
+          place(T.rock, wx, gy + 0.1 * s, wz, C('#dfeaf4'), s);                       // ice shard
         }
-        if (!tmpl) continue;
-
-        const inst = tmpl.createInstance(`dec${count}`);
-        inst.position.set(wx, yOff, wz);
-        inst.rotation.y = Math.random() * Math.PI * 2;
-        inst.instancedBuffers.color = new B.Color4(col.r, col.g, col.b, 1);
-
-        count++;
       }
     }
   }
@@ -352,12 +407,12 @@ class Renderer3D {
   _destroySettlement(key) {
     const entry = this._settlementCache[key];
     if (!entry) return;
-    // Dispose all child meshes + their materials, then the root node
     const node = entry.node;
     if (node) {
-      const meshes = node.getChildMeshes(false);
-      for (const m of meshes) {
-        if (m.material && !m.material.name.startsWith('cm_')) m.material.dispose();
+      // Materials are all shared/cached — dispose only the geometry, and
+      // detach each piece from the shadow generator first.
+      for (const m of node.getChildMeshes(false)) {
+        if (this._shadow) this._shadow.removeShadowCaster(m);
         m.dispose();
       }
       node.dispose();
@@ -365,82 +420,131 @@ class Renderer3D {
     delete this._settlementCache[key];
   }
 
+  // Cached non-civ material (walls, windows, thatch…).
+  _sharedMat(key, hex, opts = {}) {
+    if (!this._sharedMats) this._sharedMats = {};
+    if (this._sharedMats[key]) return this._sharedMats[key];
+    const B = BABYLON;
+    const m = new B.StandardMaterial('sm_' + key, this._scene);
+    m.diffuseColor  = B.Color3.FromHexString(hex);
+    m.specularColor = new B.Color3(0.05, 0.05, 0.05);
+    if (opts.emissive) m.emissiveColor = B.Color3.FromHexString(opts.emissive);
+    this._sharedMats[key] = m;
+    return m;
+  }
+
+  // Construction material evolves with the owner's tech age.
+  _wallMatForAge(age) {
+    if (age <= 1) return this._sharedMat('wall_mud',      '#6f5238');
+    if (age <= 3) return this._sharedMat('wall_stone',    '#7f8088');
+    if (age <= 5) return this._sharedMat('wall_brick',    '#7a4a3a');
+    return                this._sharedMat('wall_concrete','#9a9aa4');
+  }
+
   _buildSettlement3D(tx, ty, tier, isCapital, color, side) {
     const B     = BABYLON;
     const scene = this._scene;
     const wx = this._tcx(tx), wz = this._tcz(ty);
 
-    const root  = new B.TransformNode(`sett_${tx}_${ty}`, scene);
-    const sizes = [0.18, 0.28, 0.40, 0.54, 0.68, 0.84];
+    const civ  = this._civs ? this._civs.find(c => c.side === side) : null;
+    const age  = civ ? (civ.techAge | 0) : 2;
+
+    const sizes = [0.20, 0.30, 0.42, 0.56, 0.70, 0.86];
     const sz    = sizes[Math.min(tier, 5)];
-    const h     = sz * 0.80 + (isCapital ? 0.18 : 0);
 
-    const wallMat = this._civMaterial(side, color, 'wall');
-    const roofMat = this._civMaterial(side, color, 'roof');
-    const bodyMat = this._civMaterial(side, color, 'body');
+    const wallMat = this._wallMatForAge(age);
+    const roofMat = this._civMaterial(side, color, 'roof');   // civ-tinted → ownership at a glance
+    const bodyMat = this._civMaterial(side, color, 'body');   // bright civ colour (flag)
+    const winMat  = age >= 6 ? this._sharedMat('win_blue', '#cfe6ff', { emissive: '#5f9fd0' })
+                             : this._sharedMat('win_warm', '#ffd98a', { emissive: '#d8a040' });
 
-    // Main building body
-    const box = B.MeshBuilder.CreateBox(`sb_${tx}_${ty}`,
-      { width: sz, height: h, depth: sz }, scene);
-    box.position.set(wx, h / 2, wz);
-    box.material = wallMat;
-    box.parent = root;
-    this._shadow.getShadowMap().renderList.push(box);
+    // Collect geometry grouped by material so we can merge each group into a
+    // single mesh — a detailed settlement still costs only a few draw calls.
+    const groups = new Map();
+    const add = (mesh, mat) => {
+      mesh.material = mat;
+      if (!groups.has(mat)) groups.set(mat, []);
+      groups.get(mat).push(mesh);
+    };
 
-    // Roof cone
-    const roof = B.MeshBuilder.CreateCylinder(`sr_${tx}_${ty}`, {
-      height: sz * 0.48, diameterTop: 0, diameterBottom: sz * 1.15,
-      tessellation: isCapital ? 6 : 4,
-    }, scene);
-    roof.position.set(wx, h + sz * 0.24, wz);
-    roof.material = roofMat;
-    roof.parent = root;
+    // One little building: body + hip roof + a glowing window (from Bronze on).
+    const addHouse = (cx, cz, w, hh, d) => {
+      const body = B.MeshBuilder.CreateBox('hb', { width: w, height: hh, depth: d }, scene);
+      body.position.set(cx, hh / 2, cz);
+      add(body, wallMat);
+      const roof = B.MeshBuilder.CreateCylinder('hr',
+        { height: hh * 0.6, diameterTop: 0, diameterBottom: Math.max(w, d) * 1.5, tessellation: 4 }, scene);
+      roof.position.set(cx, hh + hh * 0.30, cz);
+      roof.rotation.y = Math.PI / 4;
+      add(roof, roofMat);
+      if (age >= 2) {
+        const win = B.MeshBuilder.CreateBox('hw', { width: w * 0.5, height: hh * 0.35, depth: 0.012 }, scene);
+        win.position.set(cx, hh * 0.46, cz + d / 2 + 0.006);
+        add(win, winMat);
+      }
+    };
 
-    // Capital flag
-    if (isCapital) {
-      const pole = B.MeshBuilder.CreateCylinder(`fp_${tx}_${ty}`,
-        { height: 0.55, diameter: 0.035, tessellation: 5 }, scene);
-      pole.position.set(wx, h + sz * 0.48 + 0.28, wz);
-      pole.material = wallMat;
-      pole.parent = root;
-
-      const flag = B.MeshBuilder.CreateBox(`ff_${tx}_${ty}`,
-        { width: 0.18, height: 0.11, depth: 0.015 }, scene);
-      flag.position.set(wx + 0.09, h + sz * 0.48 + 0.52, wz);
-      flag.material = bodyMat;
-      flag.parent = root;
+    // A cluster that grows with tier.
+    const n = [1, 1, 2, 3, 4, 5][Math.min(tier, 5)];
+    const layout = [[0, 0], [-1, -1], [1, -1], [-1, 1], [1, 1]];
+    const spread = sz * 0.55;
+    for (let i = 0; i < n; i++) {
+      const [ox, oz] = layout[i];
+      const main = i === 0;
+      const w  = 0.15 + (main ? sz * 0.20 : 0.02) + Math.random() * 0.03;
+      const hh = 0.13 + (main ? sz * 0.24 : 0.02) + (isCapital && main ? 0.10 : 0);
+      const d  = w * (0.85 + Math.random() * 0.3);
+      addHouse(wx + ox * spread, wz + oz * spread, w, hh, d);
     }
 
-    // Walls at tier 3+
+    // Defensive wall ring from tier 3.
     if (tier >= 3) {
-      const wallH = 0.13, wallThick = 0.04, wallLen = sz * 1.2 + wallThick * 2;
-      const wallDefs = [
-        [wx + sz * 0.62, wz,          0          ],
-        [wx - sz * 0.62, wz,          0          ],
-        [wx,             wz + sz * 0.62, Math.PI/2],
-        [wx,             wz - sz * 0.62, Math.PI/2],
-      ];
-      wallDefs.forEach(([ox, oz, ry], i) => {
-        const wl = B.MeshBuilder.CreateBox(`wl_${tx}_${ty}_${i}`,
-          { width: wallThick, height: wallH, depth: wallLen }, scene);
-        wl.position.set(ox, wallH / 2, oz);
-        wl.rotation.y = ry;
-        wl.material = wallMat;
-        wl.parent = root;
-      });
+      const wallH = 0.13, wallThick = 0.045, wallLen = sz * 1.3 + wallThick * 2;
+      [[sz * 0.66, 0, 0], [-sz * 0.66, 0, 0], [0, sz * 0.66, Math.PI / 2], [0, -sz * 0.66, Math.PI / 2]]
+        .forEach(([ox, oz, ry]) => {
+          const wl = B.MeshBuilder.CreateBox('wl', { width: wallThick, height: wallH, depth: wallLen }, scene);
+          wl.position.set(wx + ox, wallH / 2, wz + oz);
+          wl.rotation.y = ry;
+          add(wl, wallMat);
+        });
     }
 
-    // Tower at tier 5 or high-tier capital
+    // Corner watchtower for high tiers / capitals.
     if (tier >= 5 || (isCapital && tier >= 4)) {
-      const tw = B.MeshBuilder.CreateCylinder(`tw_${tx}_${ty}`, {
-        height: h * 1.45, diameter: sz * 0.26, tessellation: 6,
-      }, scene);
-      tw.position.set(wx + sz * 0.42, h * 0.72, wz + sz * 0.42);
-      tw.material = wallMat;
-      tw.parent = root;
-      this._shadow.getShadowMap().renderList.push(tw);
+      const tw = B.MeshBuilder.CreateCylinder('tw',
+        { height: sz * 1.1, diameter: sz * 0.26, tessellation: 6 }, scene);
+      tw.position.set(wx + sz * 0.5, sz * 0.55, wz + sz * 0.5);
+      add(tw, wallMat);
+      const cap = B.MeshBuilder.CreateCylinder('tc',
+        { height: sz * 0.3, diameterTop: 0, diameterBottom: sz * 0.34, tessellation: 6 }, scene);
+      cap.position.set(wx + sz * 0.5, sz * 1.1 + sz * 0.15, wz + sz * 0.5);
+      add(cap, roofMat);
     }
 
+    // Capital banner.
+    if (isCapital) {
+      const top = 0.13 + sz * 0.24 + 0.10;
+      const pole = B.MeshBuilder.CreateCylinder('fp', { height: 0.5, diameter: 0.03, tessellation: 5 }, scene);
+      pole.position.set(wx, top + 0.25, wz);
+      add(pole, wallMat);
+      const flag = B.MeshBuilder.CreateBox('ff', { width: 0.18, height: 0.11, depth: 0.014 }, scene);
+      flag.position.set(wx + 0.09, top + 0.42, wz);
+      add(flag, bodyMat);
+    }
+
+    // Merge each material group; parent the merged meshes to the settlement
+    // root and lift the whole thing onto the terrain.
+    const root = new B.TransformNode(`sett_${tx}_${ty}`, scene);
+    for (const [mat, arr] of groups) {
+      let m;
+      if (arr.length === 1) { m = arr[0]; }
+      else { m = B.Mesh.MergeMeshes(arr, true, true, undefined, false, false); if (m) m.material = mat; }
+      if (!m) continue;
+      m.parent = root;
+      m.isPickable = false;
+      if ((mat === wallMat || mat === roofMat) && this._shadow) this._shadow.addShadowCaster(m);
+    }
+    root.position.y = this._groundY(wx, wz);
     return root;
   }
 
@@ -478,9 +582,10 @@ class Renderer3D {
       const inst = this._citizenInstances[i];
       if (i < cits.length) {
         const c = cits[i];
-        inst.position.x = this._tx(c.x);
-        inst.position.z = this._tz(c.y);
-        inst.position.y = 0.065 + Math.sin(c.bob || 0) * 0.012;
+        const cwx = this._tx(c.x), cwz = this._tz(c.y);
+        inst.position.x = cwx;
+        inst.position.z = cwz;
+        inst.position.y = this._groundY(cwx, cwz) + 0.065 + Math.sin(c.bob || 0) * 0.012;
         const col = B.Color3.FromHexString(
           c.color && c.color.length === 7 ? c.color : '#ffffff');
         inst.instancedBuffers.color = new B.Color4(col.r, col.g, col.b, 1);
@@ -584,9 +689,10 @@ class Renderer3D {
       const inst = this._unitInstances[i];
       if (i < units.length) {
         const u = units[i];
-        inst.position.x = this._tx(u.x);
-        inst.position.z = this._tz(u.y);
-        inst.position.y = 0.10;
+        const uwx = this._tx(u.x), uwz = this._tz(u.y);
+        inst.position.x = uwx;
+        inst.position.z = uwz;
+        inst.position.y = this._groundY(uwx, uwz) + 0.10;
         const col = B.Color3.FromHexString(
           u.color && u.color.length === 7 ? u.color : '#aaaaaa');
         inst.instancedBuffers.color = new B.Color4(col.r, col.g, col.b, 1);

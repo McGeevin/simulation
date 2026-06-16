@@ -220,7 +220,16 @@ function startSim() {
   resetMobileNav(!!Game.civC);
 
   requestAnimationFrame(() => {
-    Game.renderer = new Renderer3D(document.getElementById('map-canvas'), Game.map);
+    const canvas = document.getElementById('map-canvas');
+    // Prefer the 3D aerial renderer; fall back to the 2D one if WebGL/Babylon
+    // is unavailable or the 3D scene fails to build, so the map always shows.
+    try {
+      if (typeof Renderer3D === 'undefined' || typeof BABYLON === 'undefined') throw new Error('Babylon unavailable');
+      Game.renderer = new Renderer3D(canvas, Game.map);
+    } catch (e) {
+      console.warn('3D renderer unavailable, using 2D map:', e);
+      Game.renderer = new Renderer(canvas, Game.map);
+    }
     Game.timeline = new TimelineRenderer(document.getElementById('timeline-canvas'), Game.maxYear);
 
     document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
