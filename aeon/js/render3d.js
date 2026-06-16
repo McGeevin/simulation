@@ -31,9 +31,17 @@ class Renderer3D {
     this._citizenTemplate  = null;
     this._citizenInstances = [];
 
-    // Battle-unit 3D instances
+    // Battle-unit 3D instances (box fallback)
     this._unitTemplate  = null;
     this._unitInstances = [];
+
+    // Animated Mixamo characters (loaded async; battle uses them when ready)
+    this._charReady      = false;
+    this._charContainers = {};   // key → AssetContainer
+    this._charPools      = {};   // key → [ { holder, ag, mats, inUse } ]
+    this._charScale      = 0.28; // ~1.81m model → ~0.5 world units tall (tweakable)
+    // Skinned characters are GPU-heavy; show fewer on phones.
+    this._charBudget     = (document.body && document.body.classList.contains('mobile')) ? 26 : 60;
 
     // Particle pool
     this._psPool = [];
@@ -105,16 +113,13 @@ class Renderer3D {
     // Per-civ material cache (created lazily in _civMaterial)
     this._civMatCache = {};
 
-    // Camera drift registered inside Babylon's loop (not in render())
+    // Fixed aerial god-view for the whole run — sim and battle alike. A
+    // gentle zoom toward the contested centre during battle keeps the same
+    // angle and map while letting the clash read a little larger.
     scene.registerBeforeRender(() => {
-      if (this._mode === 'battle') {
-        if (this._camera.radius < 52) this._camera.radius += 0.07;
-        this._camera.alpha += 0.0008;
-      } else {
-        if (this._camera.radius > 38) {
-          this._camera.radius = Math.max(38, this._camera.radius - 0.05);
-        }
-      }
+      const target = this._mode === 'battle' ? 32 : 38;
+      const r = this._camera.radius;
+      if (Math.abs(r - target) > 0.05) this._camera.radius += (target - r) * 0.02;
     });
 
     engine.runRenderLoop(() => scene.render());
@@ -124,6 +129,83 @@ class Renderer3D {
       if (this._engine) this._engine.resize();
     });
     this._resizeObs.observe(this.canvas.parentElement || this.canvas);
+
+    // Preload the animated characters during the sim so they're ready by the
+    // time the final battle starts. Fire-and-forget; boxes are used until then.
+    this._loadBattleCharacters();
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // ANIMATED CHARACTERS  (Mixamo glb, instanced per battle unit)
+  // ──────────────────────────────────────────────────────────
+  _loadBattleCharacters() {
+    const B = BABYLON;
+    if (!B.SceneLoader) return; // loaders plugin missing → stay on boxes
+    const files = { walk: 'walk.glb', arrow: 'arrow.glb', gunplay: 'gunplay.glb', flying: 'flying.glb', squat: 'squat.glb' };
+    const keys = Object.keys(files);
+    let done = 0;
+    for (const key of keys) {
+      B.SceneLoader.LoadAssetContainerAsync('assets/characters/', files[key], this._scene)
+        .then(container => {
+          // Stop the container's own animation groups from auto-playing; each
+          // instantiated copy gets its own group to drive.
+          for (const ag of container.animationGroups) ag.stop();
+          this._charContainers[key] = container;
+          this._charPools[key] = [];
+          if (++done === keys.length) this._charReady = true;
+        })
+        .catch(err => {
+          console.warn('Character load failed (' + key + '), using box units:', err);
+        });
+    }
+  }
+
+  // Which animation a unit plays, from its race / tech age / unit type.
+  _charKeyForUnit(u) {
+    const civ = this._civs ? this._civs.find(c => c.side === u.side) : null;
+    if (civ && civ.race === 'avians') return 'flying';
+    const age = civ ? (civ.techAge | 0) : 2;
+    if (age >= 5) return 'gunplay';              // Industrial+ : firearms
+    if (u.type === 'archer') return 'arrow';
+    if (u.type === 'mage')   return 'squat';     // placeholder "cast" pose
+    return 'walk';
+  }
+
+  // Borrow a pooled character (or instantiate a new one) for a key.
+  // Instantiation is rate-limited by the caller via allowCreate so a fresh
+  // army ramps in over a few frames instead of hitching all at once.
+  _acquireChar(key, allowCreate) {
+    const pool = this._charPools[key];
+    const container = this._charContainers[key];
+    if (!pool || !container) return null;
+    for (const e of pool) if (!e.inUse) { e.inUse = true; return e; }
+    if (!allowCreate) return null;
+
+    // None free → instantiate a fresh copy (shares geometry, own skeleton).
+    const B = BABYLON;
+    let entry = null;
+    try {
+      const inst = container.instantiateModelsToScene(n => key + '_' + pool.length, false);
+      const holder = new B.TransformNode('char_' + key + '_' + pool.length, this._scene);
+      const root = inst.rootNodes[0];
+      root.parent = holder;
+      holder.scaling.setAll(this._charScale);
+
+      // Per-copy materials so each soldier can wear its civ colour.
+      const mats = [];
+      for (const m of root.getChildMeshes(false)) {
+        m.isPickable = false;
+        if (m.material) { m.material = m.material.clone(m.name + '_m'); mats.push(m.material); }
+      }
+      const ag = inst.animationGroups[0] || null;
+      if (ag) { ag.start(true); ag.goToFrame(ag.from + Math.random() * (ag.to - ag.from)); }
+      entry = { holder, root, ag, mats, inUse: true };
+      pool.push(entry);
+    } catch (err) {
+      console.warn('instantiate char failed:', err);
+      return null;
+    }
+    return entry;
   }
 
   // ──────────────────────────────────────────────────────────
@@ -676,6 +758,62 @@ class Renderer3D {
   }
 
   _syncBattleUnits() {
+    if (this._charReady) this._syncBattleUnitsChars();
+    else                 this._syncBattleUnitsBoxes();
+  }
+
+  // Animated Mixamo soldiers driven by the (tile-space) battle units.
+  _syncBattleUnitsChars() {
+    const B = BABYLON;
+    // Hide the box fallback the first time characters take over.
+    for (const inst of this._unitInstances) inst.isVisible = false;
+    // Free every pooled character; we re-bind the visible ones below.
+    for (const key in this._charPools) for (const e of this._charPools[key]) e.inUse = false;
+
+    let budget = this._charBudget;
+    let newThisFrame = 0;
+    const NEW_CAP = 6;
+    for (const u of this.battleUnits) {
+      if (u.dead || budget <= 0) continue;
+      const key = this._charKeyForUnit(u);
+      const pool = this._charPools[key];
+      if (!pool) continue;
+      const before = pool.length;
+      const e = this._acquireChar(key, newThisFrame < NEW_CAP);
+      if (!e) continue;
+      if (pool.length > before) newThisFrame++;
+      budget--;
+
+      const wx = this._tx(u.x), wz = this._tz(u.y);
+      const gy = this._groundY(wx, wz) + (key === 'flying' ? 0.6 : 0.0);
+      e.holder.position.set(wx, gy, wz);
+
+      // Face the direction of travel (smoothed); keep last heading when still.
+      const dx = wx - (u._pwx !== undefined ? u._pwx : wx);
+      const dz = wz - (u._pwz !== undefined ? u._pwz : wz);
+      if (dx * dx + dz * dz > 1e-5) u._heading = Math.atan2(dx, dz);
+      u._pwx = wx; u._pwz = wz;
+      e.holder.rotation.y = (u._heading || 0);
+
+      // Wear the civ colour.
+      const col = B.Color3.FromHexString(u.color && u.color.length === 7 ? u.color : '#aaaaaa');
+      for (const m of e.mats) {
+        if (m.albedoColor) m.albedoColor = col;
+        if (m.diffuseColor) m.diffuseColor = col;
+      }
+      e.holder.setEnabled(true);
+    }
+
+    // Park unused characters out of sight.
+    for (const key in this._charPools) {
+      for (const e of this._charPools[key]) {
+        if (!e.inUse) e.holder.setEnabled(false);
+      }
+    }
+  }
+
+  // Cheap instanced boxes — fallback before characters load (or if they fail).
+  _syncBattleUnitsBoxes() {
     const units = this.battleUnits;
     const B     = BABYLON;
 
@@ -687,7 +825,7 @@ class Renderer3D {
 
     for (let i = 0; i < this._unitInstances.length; i++) {
       const inst = this._unitInstances[i];
-      if (i < units.length) {
+      if (i < units.length && !units[i].dead) {
         const u = units[i];
         const uwx = this._tx(u.x), uwz = this._tz(u.y);
         inst.position.x = uwx;
@@ -780,6 +918,15 @@ class Renderer3D {
 
   resize() {
     if (this._engine) this._engine.resize();
+  }
+
+  // Free the WebGL context (called when a new simulation replaces this one)
+  // so engines don't stack up across games.
+  dispose() {
+    try { if (this._resizeObs) this._resizeObs.disconnect(); } catch (_) {}
+    try { if (this._engine) { this._engine.stopRenderLoop(); this._engine.dispose(); } } catch (_) {}
+    this._engine = null;
+    this._scene = null;
   }
 
   render(civs, year, mode = 'sim') {

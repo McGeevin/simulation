@@ -221,6 +221,10 @@ function startSim() {
 
   requestAnimationFrame(() => {
     const canvas = document.getElementById('map-canvas');
+    // Tear down a previous renderer so WebGL contexts don't stack across runs.
+    if (Game.renderer && typeof Game.renderer.dispose === 'function') {
+      try { Game.renderer.dispose(); } catch (_) {}
+    }
     // Prefer the 3D aerial renderer; fall back to the 2D one if WebGL/Babylon
     // is unavailable or the 3D scene fails to build, so the map always shows.
     try {
@@ -380,34 +384,19 @@ function startBattle() {
   overlay.textContent = label;
   overlay.classList.add('show');
 
-  loadBabylon3D(
-    () => {
-      // 3D path — Battle3D owns its own render loop
-      overlay.classList.remove('show');
-      const canvas = document.getElementById('battle3d-canvas');
-      canvas.style.display = '';
-      const logEl = document.getElementById('battle3d-log');
-      if (logEl) logEl.style.display = '';
-      Game._battle3dActive = true;
-      Game.battle = new Battle3D({
-        canvas,
-        civs: Game.civs,
-        outcome: Game.battleOutcome,
-        endYear: Game.maxYear,
-        onDone: finishGame,
-      });
-      Game.battle.start();
-    },
-    () => {
-      // 2D fallback — BattleVisualizer stepped from gameLoop
-      Game._battle3dActive = false;
-      Game.battle = new BattleVisualizer(Game.renderer, Game.map, Game.civs, Game.battleOutcome);
-      Game.battle.start();
-    }
-  );
+  // The battle plays out on the SAME aerial map: armies march from their
+  // capitals and clash in the centre, stepped from the game loop and drawn
+  // by the live renderer (animated characters when loaded, boxes otherwise).
+  Game._battle3dActive = false;
+  setTimeout(() => {
+    overlay.classList.remove('show');
+    Game.battle = new BattleVisualizer(Game.renderer, Game.map, Game.civs, Game.battleOutcome);
+    Game.battle.start();
+  }, 900);
 }
 
 function battleStep() {
+  if (!Game.battle) return; // brief dramatic pause before the armies form up
   Game.battle.step();
   if (Game.battle.isDone()) finishGame();
 }
