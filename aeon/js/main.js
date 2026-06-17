@@ -102,7 +102,17 @@ function init() {
   document.getElementById('new-game-btn').addEventListener('click', () => {
     if (Game.battle && typeof Game.battle.disposeEngine === 'function') Game.battle.disposeEngine();
     Game._battle3dActive = false;
-    showScreen('setup-screen');
+    // === AEON ADDITION - MAIN MENU - START ===
+    // Route back through the menu (not straight to setup) so Continue/World
+    // History/Legacy World reflect the run that just ended. Falls back to the
+    // original direct-to-setup behaviour if the menu module never loaded.
+    if (typeof AeonMenu !== 'undefined' && document.getElementById('menu-screen')) {
+      AeonMenu._refreshMenuState();
+      showScreen('menu-screen');
+    } else {
+      showScreen('setup-screen');
+    }
+    // === AEON ADDITION - MAIN MENU - END ===
     Game.phase = 'setup';
     Game.running = false;
   });

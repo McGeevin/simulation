@@ -50,8 +50,15 @@ const AeonMenu = {
           <h2>New Game</h2>
           <button class="submenu-btn" data-mode="sandbox">Sandbox<small>The classic open simulation</small></button>
           <button class="submenu-btn disabled" disabled>Campaign<small>Coming Soon</small></button>
-          <button class="submenu-btn disabled" disabled>Ironman Run<small>Coming Soon — toggle Ironman in Options</small></button>
-          <button class="submenu-btn disabled" disabled>Legacy World<small>Coming Soon</small></button>
+          <button class="submenu-btn" data-mode="ironman">Ironman Run<small>One life. No reloads. A Chronicle at the end.</small></button>
+          <button class="submenu-btn disabled" id="menu-legacy-btn" data-mode="legacy" disabled>Legacy World<small>Coming Soon</small></button>
+          <button class="menu-back" data-act="back">‹ Back</button>
+        </div>
+
+        <div class="menu-panel" id="menu-legacy-briefing" hidden>
+          <h2>Legacy World</h2>
+          <div id="legacy-briefing-body"></div>
+          <button class="submenu-btn" data-act="legacy-begin" style="margin-top:14px;">Begin<small>Carry this history into a new world</small></button>
           <button class="menu-back" data-act="back">‹ Back</button>
         </div>
 
@@ -102,9 +109,12 @@ const AeonMenu = {
       const act = btn.dataset.act;
       const mode = btn.dataset.mode;
       if (mode === 'sandbox') { this._startSandbox(); return; }
+      if (mode === 'ironman') { this._startIronman(); return; }
+      if (mode === 'legacy') { this._openLegacyBriefing(); return; }
       if (act === 'newgame') this._showPanel('menu-newgame');
       else if (act === 'options') { this._syncOptionsUI(); this._showPanel('menu-options'); }
       else if (act === 'history') this._openHistory();
+      else if (act === 'legacy-begin') this._startLegacy();
       else if (act === 'back') this._showPanel(null);
     });
 
@@ -113,7 +123,7 @@ const AeonMenu = {
   },
 
   _showPanel(id) {
-    ['menu-newgame', 'menu-options'].forEach(p => {
+    ['menu-newgame', 'menu-options', 'menu-legacy-briefing'].forEach(p => {
       const el = document.getElementById(p);
       if (el) el.hidden = (p !== id);
     });
@@ -122,13 +132,21 @@ const AeonMenu = {
   },
 
   _refreshMenuState() {
+    const has = aeonHasChronicles();
     const hist = document.getElementById('menu-history-btn');
     if (hist) {
-      const has = aeonHasChronicles();
       hist.disabled = !has;
       hist.classList.toggle('disabled', !has);
       if (!has) hist.innerHTML = 'World History<small>Coming Soon</small>';
       else hist.textContent = 'World History';
+    }
+    const legacy = document.getElementById('menu-legacy-btn');
+    if (legacy) {
+      legacy.disabled = !has;
+      legacy.classList.toggle('disabled', !has);
+      legacy.innerHTML = has
+        ? 'Legacy World<small>Carry forward the marks of past runs</small>'
+        : 'Legacy World<small>Coming Soon — complete a run first</small>';
     }
     // Continue stays disabled — AEON has no mid-run save to resume.
     const cont = document.getElementById('menu-continue-btn');
@@ -137,6 +155,51 @@ const AeonMenu = {
 
   _startSandbox() {
     gameConfig.mode = 'sandbox';
+    const menu = document.getElementById('menu-screen');
+    if (menu) menu.classList.remove('active');
+    showScreen('setup-screen');
+    this._showPanel(null);
+  },
+
+  _startIronman() {
+    gameConfig.mode = 'ironman';
+    gameConfig.ironman = true;
+    saveGameConfig();
+    const menu = document.getElementById('menu-screen');
+    if (menu) menu.classList.remove('active');
+    showScreen('setup-screen');
+    this._showPanel(null);
+  },
+
+  // ── Legacy World: preview what past runs carry forward, then launch ─
+  _openLegacyBriefing() {
+    const body = document.getElementById('legacy-briefing-body');
+    const lw = (typeof LegacySystem !== 'undefined') ? LegacySystem.legacyWorld : null;
+    if (body) {
+      if (!lw || !lw.runCount) {
+        body.innerHTML = '<p class="wh-empty">No history yet — this will play like a fresh Sandbox run.</p>';
+      } else {
+        const remnant = Array.from(lw.remnant || []);
+        const { tone, magnitude } = lw.culturalMemory;
+        const toneLabel = tone === 'merciful'
+          ? `Rivals remember mercy — new civs open with a goodwill bonus (×${magnitude}).`
+          : tone === 'brutal'
+          ? `Rivals remember brutality — new civs open warier and more fearful (×${magnitude}).`
+          : 'No strong cultural memory yet.';
+        body.innerHTML = `
+          <div class="legacy-brief-row"><strong>${lw.runCount}</strong> chronicled run${lw.runCount === 1 ? '' : 's'} precede this world.</div>
+          <div class="legacy-brief-row">${remnant.length
+            ? `Remnant peoples: ${remnant.map(r => `<span class="diplo-tag debt">${escapeHtml(r)}</span>`).join(' ')}`
+            : 'No race has been broken to Remnant status yet.'}</div>
+          <div class="legacy-brief-row">${escapeHtml(toneLabel)}</div>
+          <div class="legacy-brief-row">${lw.ruins.length} ruin marker${lw.ruins.length === 1 ? '' : 's'} will be placed near former capitals.</div>`;
+      }
+    }
+    this._showPanel('menu-legacy-briefing');
+  },
+
+  _startLegacy() {
+    gameConfig.mode = 'legacy';
     const menu = document.getElementById('menu-screen');
     if (menu) menu.classList.remove('active');
     showScreen('setup-screen');

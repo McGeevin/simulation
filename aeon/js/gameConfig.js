@@ -10,7 +10,7 @@
 
 const gameConfig = {
   // ── Mode / player ──────────────────────────────────────────
-  mode: 'sandbox',          // sandbox | campaign | ironman | legacy (only sandbox live)
+  mode: 'sandbox',          // sandbox | campaign | ironman | legacy (campaign not yet built)
   playerSide: 'A',          // which configured side the human "plays as"
 
   // ── Crisis Events (Feature 2) ──────────────────────────────

@@ -52,6 +52,9 @@
 .menu-back { margin-top: 6px; background: none; border: 1px solid var(--feat-line); border-radius: 7px; color: #aab2c4; padding: 8px 14px; cursor: pointer; font-family: var(--font-ui, sans-serif); }
 .menu-back:hover { color: #fff; }
 
+.legacy-brief-row { font-family: var(--font-ui, sans-serif); color: var(--feat-ink); font-size: 13.5px; line-height: 1.6; padding: 8px 0; border-bottom: 1px solid rgba(255, 255, 255, .07); }
+.legacy-brief-row:last-child { border-bottom: none; }
+
 .opt-grp { display: flex; flex-direction: column; gap: 10px; padding: 12px 0; border-bottom: 1px solid rgba(255, 255, 255, .07); }
 .opt-toggle { display: flex; align-items: center; justify-content: space-between; font-family: var(--font-ui, sans-serif); color: var(--feat-ink); font-size: 15px; }
 .opt-toggle input { width: 18px; height: 18px; accent-color: var(--feat-gold); }
