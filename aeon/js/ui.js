@@ -91,6 +91,18 @@ function modsToStatLines(mods) {
 function biomeNames(keys) { return keys.map(k => BIOMES[k] ? BIOMES[k].name : k).join(', '); }
 function raceNames(keys) { return keys.map(k => RACES[k] ? RACES[k].name : k).join(', '); }
 function focusNames(keys) { return keys.map(k => FOCUSES[k] ? FOCUSES[k].name : k).join(', '); }
+function ageName(i) { return TECH_AGES[i] ? TECH_AGES[i].name : ('Age ' + i); }
+
+// Human-readable summary of a weapon's cumulative-pool unlock gate,
+// e.g. { wealth: 35000000 } → "35.0M Wealth".
+function unlockReqText(req) {
+  if (!req) return '';
+  const out = [];
+  for (const k of Object.keys(POOL_LABELS)) {
+    if (req[k] !== undefined) out.push(formatNum(req[k]) + ' ' + POOL_LABELS[k]);
+  }
+  return out.join(' + ');
+}
 
 function combatStars(factor) {
   let n = 2;
@@ -105,9 +117,14 @@ function describeOption(field, item) {
 
   if (field === 'weapon') {
     const factor = weaponPowerFactor(item);
-    const age = TECH_AGES[item.unlockAge] ? TECH_AGES[item.unlockAge].name : `Age ${item.unlockAge}`;
-    stats += `<span class="sl sl-info">Unlocks <b>${escapeHtml(age)} Age</b></span>`;
     stats += `<span class="sl sl-power">Combat <b>×${factor.toFixed(1)}</b> <span class="stars">${combatStars(factor)}</span></span>`;
+    if (item.unlockReq) {
+      // Earned by committing to a grand strategy, not just reaching an age.
+      stats += `<span class="sl sl-info">Earned via <b>${escapeHtml(unlockReqText(item.unlockReq))}</b></span>`;
+      if (item.unlockAge > 1) stats += `<span class="sl sl-neutral">from the ${escapeHtml(ageName(item.unlockAge))} Age</span>`;
+    } else {
+      stats += `<span class="sl sl-info">Unlocks <b>${escapeHtml(ageName(item.unlockAge))} Age</b></span>`;
+    }
     const tags = Object.keys(item.battleMod || {})
       .map(k => BATTLE_EFFECT_LABELS[k]).filter(Boolean);
     if (tags.length) extra += `<div class="opt-tags">${tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</div>`;
@@ -542,8 +559,8 @@ function renderSheet(cat) {
   else if (cat === 'focus')      { html = renderMatrix(FOCUSES, false); note = `${Object.keys(FOCUSES).length} focuses — your civilization's grand strategy.`; }
   else if (cat === 'government') { html = renderMatrix(GOVERNMENTS, false); note = `${Object.keys(GOVERNMENTS).length} governments — some require specific races.`; }
   else if (cat === 'biome')      { html = renderMatrix(BIOMES, false); note = `${Object.keys(BIOMES).length} biomes — your homeland's resource profile.`; }
-  else if (cat === 'weapon')     { html = renderWeaponSheet(); note = `${Object.keys(WEAPONS).length} special weapons — unlocked at the listed tech age.`; }
-  else if (cat === 'age')        { html = renderAgeSheet(); note = `${TECH_AGES.length} tech ages — higher ages multiply every soldier's battle power.`; }
+  else if (cat === 'weapon')     { html = renderWeaponSheet(); note = `${Object.keys(WEAPONS).length} special weapons — some unlock at a tech age, others are earned by committing to wealth, trade, espionage, faith or magic.`; }
+  else if (cat === 'age')        { html = renderAgeSheet(); note = `${TECH_AGES.length} tech ages — higher ages multiply every soldier's battle power. The deep-time ages appear only in 5,000–10,000-year runs.`; }
   el.innerHTML = `<p class="sheet-note">${note}</p>${html}`;
   el.scrollTop = 0;
 }
@@ -591,7 +608,10 @@ function renderWeaponSheet() {
   let rows = '';
   for (const w of Object.values(WEAPONS)) {
     const f = weaponPowerFactor(w);
-    const age = TECH_AGES[w.unlockAge] ? TECH_AGES[w.unlockAge].name : ('Age ' + w.unlockAge);
+    // "Unlocks" column: a resource gate when present, otherwise the tech age.
+    const unlockCell = w.unlockReq
+      ? `${escapeHtml(unlockReqText(w.unlockReq))}${w.unlockAge > 1 ? `<small>from ${escapeHtml(ageName(w.unlockAge))} Age</small>` : ''}`
+      : escapeHtml(ageName(w.unlockAge) + ' Age');
     const tags = Object.keys(w.battleMod || {}).map(k => BATTLE_EFFECT_LABELS[k]).filter(Boolean)
       .map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('');
     const reqParts = [];
@@ -600,17 +620,17 @@ function renderWeaponSheet() {
       if (w.requires.focusOr) reqParts.push('focus: ' + focusNames(w.requires.focusOr));
       if (w.requires.focus) reqParts.push('focus: ' + focusNames(w.requires.focus));
     }
-    const barW = Math.min(100, (f / 3.6) * 100);
+    const barW = Math.min(100, (f / 4.6) * 100);
     rows += `<tr>
       <td class="sticky-col"><b>${escapeHtml(w.name)}</b><small>${escapeHtml(w.desc)}</small></td>
-      <td>${escapeHtml(age)}</td>
+      <td>${unlockCell}</td>
       <td><div class="hbar"><span style="width:${barW}%"></span></div><span class="dv-num good">×${f.toFixed(1)} <span class="stars">${combatStars(f)}</span></span></td>
       <td class="tags-cell">${tags}</td>
       <td class="req-cell">${reqParts.length ? escapeHtml(reqParts.join(' · ')) : '—'}</td>
     </tr>`;
   }
   return `<div class="sheet-scroll"><table class="sheet-table weapon-table">
-    <tr><th class="sticky-col">Weapon</th><th>Unlocks</th><th>Combat power</th><th>Effects</th><th>Requires</th></tr>${rows}</table></div>`;
+    <tr><th class="sticky-col">Weapon</th><th>Unlocks / Earned via</th><th>Combat power</th><th>Effects</th><th>Requires</th></tr>${rows}</table></div>`;
 }
 
 function renderAgeSheet() {

@@ -46,6 +46,23 @@ class Renderer3D {
     // as cheap instanced boxes, so battles never look sparse or GPU-starved.
     this._charBudget     = this._isMobile ? 16 : 40;
 
+    // ── Civic development (roads, traffic, cities) ──────────────
+    // As a civ industrialises its settlements grow road networks, then
+    // road traffic, then its towns rise into proper cities. Tech-age gates:
+    this._roadAge    = 4;  // Renaissance — paved highways link the towns
+    this._vehicleAge = 5;  // Industrial  — wheeled traffic on the roads
+    this._cityAge    = 6;  // Modern      — towns rise into tall cities
+    this._roadNode   = null;   // single merged mesh for ALL roads (1 draw call)
+    this._roadSig    = '';     // signature → only rebuild when the network changes
+    this._roadSegments = [];   // [{ax,az,bx,bz,traffic}] world-space, for vehicles
+    this._vehicleTemplate  = null;
+    this._vehicleInstances = [];
+    this._vehicles   = [];     // logical { seg, t, dir, speed, color }
+    this._vehicleBudget = this._isMobile ? 6 : 18;
+
+    // ── Camera view modes (angled god-view ⇄ top-down aerial) ───
+    this._viewMode  = 'angled';
+
     // Particle pool
     this._psPool = [];
 
@@ -123,18 +140,25 @@ class Renderer3D {
     this._buildDecorations();
     this._buildCitizenTemplate();
     this._buildBattleUnitTemplate();
+    this._buildVehicleTemplate();
     this._buildParticlePool();
 
     // Per-civ material cache (created lazily in _civMaterial)
     this._civMatCache = {};
 
-    // Fixed aerial god-view for the whole run — sim and battle alike. A
-    // gentle zoom toward the contested centre during battle keeps the same
-    // angle and map while letting the clash read a little larger.
+    // Camera animation. Two view modes the player can toggle:
+    //   • 'angled' — the cinematic god-view (default), with a gentle zoom
+    //     toward the contested centre during battle.
+    //   • 'aerial' — a near top-down map view for reading territory & cities.
+    // Both the orbit angle (beta) and distance (radius) ease toward their
+    // targets so toggling glides rather than snaps.
     scene.registerBeforeRender(() => {
-      const target = this._mode === 'battle' ? 32 : 38;
-      const r = this._camera.radius;
-      if (Math.abs(r - target) > 0.05) this._camera.radius += (target - r) * 0.02;
+      const aerial  = this._viewMode === 'aerial';
+      const rTarget = aerial ? 41 : (this._mode === 'battle' ? 32 : 38);
+      const bTarget = aerial ? 0.16 : 0.72;
+      const c = this._camera;
+      c.radius += (rTarget - c.radius) * 0.06;
+      c.beta   += (bTarget - c.beta)   * 0.06;
     });
 
     engine.runRenderLoop(() => scene.render());
@@ -256,40 +280,68 @@ class Renderer3D {
     const B    = BABYLON;
     const scene = this._scene;
     const mw = this.map.width, mh = this.map.height;
-    const TW = 256, TH = 128;
+    // Higher-resolution bake on desktop so biome borders read as soft
+    // gradients rather than hard pixel blocks. (One-time CPU bake; the
+    // GPU only ever sees a single uploaded texture, so this is cheap.)
+    const TW = this._isMobile ? 256 : 512;
+    const TH = this._isMobile ? 128 : 256;
     this._terrainW = TW; this._terrainH = TH;
 
-    // ── Base biome texture (baked once) ──────────────────────
+    // ── Base biome texture (baked once, smoothly) ────────────
     const baseTex = new B.DynamicTexture('biomeBase', { width: TW, height: TH }, scene, false);
     baseTex.wrapU = baseTex.wrapV = B.Texture.CLAMP_ADDRESSMODE;
     const bctx = baseTex.getContext();
-    const pw = TW / mw, ph = TH / mh;
 
+    // Per-tile base colour grid (biome colour ↔ colorAlt mixed by a smooth
+    // per-tile hash + elevation shading), computed once.
+    const hexRGB = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+    const hash01 = (x, y) => { const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453; return n - Math.floor(n); };
+    const grid = new Array(mh);
     for (let y = 0; y < mh; y++) {
+      grid[y] = new Array(mw);
       for (let x = 0; x < mw; x++) {
         const tile  = this.map.tiles[y][x];
+        if (tile.type === 1 /* WATER */ || tile.river) { grid[y][x] = hexRGB(tile.river ? '#2d5070' : '#1e3858'); continue; }
         const bkey  = tile.biomeKey || tile.biome || 'plains';
         const biome = (typeof BIOMES !== 'undefined' && BIOMES[bkey]) || null;
-        let col;
-        if (tile.type === 1 /* WATER */ || tile.river) {
-          col = tile.river ? '#2d5070' : '#1e3858';
-        } else if (biome) {
-          const useAlt = ((x * 7 + y * 11) % 4) < 2;
-          col = useAlt ? biome.colorAlt : biome.color;
-          // Elevation shading
-          const e = tile.elevation || 0;
-          if      (e > 0.72) col = _shade3d(col, -0.16);
-          else if (e > 0.50) col = _shade3d(col, -0.07);
-          else if (e < 0.25) col = _shade3d(col,  0.06);
-        } else {
-          col = '#2a3a2a';
-        }
-        bctx.fillStyle = col;
-        bctx.fillRect(Math.round(x * pw), Math.round(y * ph),
-                      Math.ceil(pw) + 1, Math.ceil(ph) + 1);
+        if (!biome) { grid[y][x] = hexRGB('#2a3a2a'); continue; }
+        const a = hexRGB(biome.color), b2 = hexRGB(biome.colorAlt || biome.color);
+        const m = hash01(x, y);
+        let r = a[0] + (b2[0] - a[0]) * m, g = a[1] + (b2[1] - a[1]) * m, bl = a[2] + (b2[2] - a[2]) * m;
+        const e = tile.elevation || 0;
+        const amt = e > 0.72 ? -0.16 : e > 0.50 ? -0.07 : e < 0.25 ? 0.06 : 0;
+        grid[y][x] = [r * (1 + amt), g * (1 + amt), bl * (1 + amt)];
       }
     }
+
+    // Bilinearly resample the tile grid into the texture (soft borders) and
+    // sprinkle a little per-pixel value noise so flat biomes look organic.
+    const img = bctx.createImageData(TW, TH);
+    const data = img.data;
+    const clampi = (v, lo, hi) => v < lo ? lo : v > hi ? hi : v;
+    for (let py = 0; py < TH; py++) {
+      const gy = (py + 0.5) / TH * mh - 0.5;
+      const y0 = Math.floor(gy), fy = gy - y0;
+      const ya = clampi(y0, 0, mh - 1), yb = clampi(y0 + 1, 0, mh - 1);
+      for (let px = 0; px < TW; px++) {
+        const gx = (px + 0.5) / TW * mw - 0.5;
+        const x0 = Math.floor(gx), fx = gx - x0;
+        const xa = clampi(x0, 0, mw - 1), xb = clampi(x0 + 1, 0, mw - 1);
+        const c00 = grid[ya][xa], c10 = grid[ya][xb], c01 = grid[yb][xa], c11 = grid[yb][xb];
+        const n = (hash01(px * 1.7, py * 1.3) - 0.5) * 13;
+        const idx = (py * TW + px) * 4;
+        for (let k = 0; k < 3; k++) {
+          const top = c00[k] + (c10[k] - c00[k]) * fx;
+          const bot = c01[k] + (c11[k] - c01[k]) * fx;
+          data[idx + k] = clampi(Math.round(top + (bot - top) * fy + n), 0, 255);
+        }
+        data[idx + 3] = 255;
+      }
+    }
+    bctx.putImageData(img, 0, 0);
     baseTex.update(false);
+    baseTex.updateSamplingMode(B.Texture.TRILINEAR_SAMPLINGMODE);
+    baseTex.anisotropicFilteringLevel = 4;
 
     // ── Territory overlay texture (updated every 3 frames) ───
     const terrTex = new B.DynamicTexture('territory', { width: TW, height: TH }, scene, false);
@@ -298,7 +350,9 @@ class Renderer3D {
     this._terrTex = terrTex;
 
     // ── Ground mesh, subdivided + displaced by tile elevation ─
-    const subX = Math.min(mw, 72), subY = Math.min(mh, 36);
+    // More subdivisions on desktop → smoother hill silhouettes (less faceting).
+    const subX = Math.min(mw, this._isMobile ? 72 : 112);
+    const subY = Math.min(mh, this._isMobile ? 36 : 64);
     const ground = B.MeshBuilder.CreateGround('ground',
       { width: 44, height: 18, subdivisionsX: subX, subdivisionsY: subY, updatable: true }, scene);
     const matGnd = new B.StandardMaterial('matGnd', scene);
@@ -567,34 +621,53 @@ class Renderer3D {
       groups.get(mat).push(mesh);
     };
 
-    // One little building: body + hip roof + a glowing window (from Bronze on).
-    const addHouse = (cx, cz, w, hh, d) => {
+    // Once a civ modernises (cityAge) its towns rise into proper cities:
+    // denser blocks and flat-roofed towers with stacked, lit windows.
+    const isCity = age >= this._cityAge;
+
+    // One building. Pre-modern → hip-roofed house with a glowing window;
+    // a city `tall` building → a flat-roofed tower with rows of windows.
+    const addHouse = (cx, cz, w, hh, d, tall) => {
       const body = B.MeshBuilder.CreateBox('hb', { width: w, height: hh, depth: d }, scene);
       body.position.set(cx, hh / 2, cz);
       add(body, wallMat);
-      const roof = B.MeshBuilder.CreateCylinder('hr',
-        { height: hh * 0.6, diameterTop: 0, diameterBottom: Math.max(w, d) * 1.5, tessellation: 4 }, scene);
-      roof.position.set(cx, hh + hh * 0.30, cz);
-      roof.rotation.y = Math.PI / 4;
-      add(roof, roofMat);
-      if (age >= 2) {
-        const win = B.MeshBuilder.CreateBox('hw', { width: w * 0.5, height: hh * 0.35, depth: 0.012 }, scene);
-        win.position.set(cx, hh * 0.46, cz + d / 2 + 0.006);
-        add(win, winMat);
+      if (tall) {
+        const rows = Math.max(2, Math.floor(hh / 0.12));
+        for (let r = 0; r < rows; r++) {
+          const win = B.MeshBuilder.CreateBox('hw', { width: w * 0.72, height: 0.032, depth: 0.012 }, scene);
+          win.position.set(cx, (r + 0.7) * (hh / rows), cz + d / 2 + 0.006);
+          add(win, winMat);
+        }
+      } else {
+        const roof = B.MeshBuilder.CreateCylinder('hr',
+          { height: hh * 0.6, diameterTop: 0, diameterBottom: Math.max(w, d) * 1.5, tessellation: 4 }, scene);
+        roof.position.set(cx, hh + hh * 0.30, cz);
+        roof.rotation.y = Math.PI / 4;
+        add(roof, roofMat);
+        if (age >= 2) {
+          const win = B.MeshBuilder.CreateBox('hw', { width: w * 0.5, height: hh * 0.35, depth: 0.012 }, scene);
+          win.position.set(cx, hh * 0.46, cz + d / 2 + 0.006);
+          add(win, winMat);
+        }
       }
     };
 
-    // A cluster that grows with tier.
-    const n = [1, 1, 2, 3, 4, 5][Math.min(tier, 5)];
-    const layout = [[0, 0], [-1, -1], [1, -1], [-1, 1], [1, 1]];
-    const spread = sz * 0.55;
+    // A cluster that grows with tier — denser, with towers, once a city.
+    const n      = (isCity ? [1, 2, 4, 6, 8, 9] : [1, 1, 2, 3, 4, 5])[Math.min(tier, 5)];
+    const layout = isCity
+      ? [[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, -1], [-1, 1], [1, 1]]
+      : [[0, 0], [-1, -1], [1, -1], [-1, 1], [1, 1]];
+    const spread = sz * (isCity ? 0.5 : 0.55);
+    const towerCount = tier >= 4 ? 4 : 2;
     for (let i = 0; i < n; i++) {
-      const [ox, oz] = layout[i];
+      const [ox, oz] = layout[i % layout.length];
       const main = i === 0;
-      const w  = 0.15 + (main ? sz * 0.20 : 0.02) + Math.random() * 0.03;
-      const hh = 0.13 + (main ? sz * 0.24 : 0.02) + (isCapital && main ? 0.10 : 0);
+      const tall = isCity && i < towerCount;
+      const w  = 0.15 + (main ? sz * 0.20 : 0.04) + Math.random() * 0.03;
+      let   hh = 0.13 + (main ? sz * 0.24 : 0.04) + (isCapital && main ? 0.10 : 0);
+      if (tall) hh += sz * (0.5 + Math.random() * 0.7) + (age - this._cityAge) * 0.06; // skyscrapers, taller in later ages
       const d  = w * (0.85 + Math.random() * 0.3);
-      addHouse(wx + ox * spread, wz + oz * spread, w, hh, d);
+      addHouse(wx + ox * spread, wz + oz * spread, w, hh, d, tall);
     }
 
     // Defensive wall ring from tier 3.
@@ -646,6 +719,152 @@ class Renderer3D {
     }
     root.position.y = this._groundY(wx, wz);
     return root;
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // ROADS  (one merged mesh for every civ's network — 1 draw call)
+  // ──────────────────────────────────────────────────────────
+
+  // Greedy nearest-neighbour spanning tree over a civ's settlements, grown
+  // outward from its first/capital town — a believable trunk-road network.
+  _civRoadSegments(civ) {
+    const setts = (civ._settlements || []).filter(e => e && e.s);
+    if (setts.length < 2) return [];
+    const nodes = setts.map(e => ({ x: e.x, y: e.y }));
+    const connected = [0];
+    const remaining = new Set(nodes.map((_, i) => i).slice(1));
+    const segs = [];
+    while (remaining.size) {
+      let best = null, bd = Infinity, bFrom = 0;
+      for (const ci of connected) {
+        for (const ri of remaining) {
+          const dx = nodes[ci].x - nodes[ri].x, dy = nodes[ci].y - nodes[ri].y;
+          const d = dx * dx + dy * dy;
+          if (d < bd) { bd = d; best = ri; bFrom = ci; }
+        }
+      }
+      if (best === null) break;
+      segs.push([nodes[bFrom], nodes[best]]);
+      connected.push(best);
+      remaining.delete(best);
+    }
+    return segs;
+  }
+
+  // Rebuild the road network only when it actually changes (a town founded,
+  // or a civ crossing the traffic age) — cheap to call every diff tick.
+  _updateRoads(civs) {
+    if (!civs) return;
+    let sig = '';
+    for (const civ of civs) {
+      if ((civ.techAge | 0) < this._roadAge) continue;
+      sig += civ.side + ':' + civ.techAge + ':';
+      for (const e of (civ._settlements || [])) sig += e.x + ',' + e.y + ';';
+      sig += '|';
+    }
+    if (sig === this._roadSig) return;
+    this._roadSig = sig;
+
+    if (this._roadNode) { this._roadNode.dispose(); this._roadNode = null; }
+    this._roadSegments = [];
+
+    const B = BABYLON;
+    const pieces = [];
+    const MAX_PIECES = 700;
+
+    for (const civ of civs) {
+      if ((civ.techAge | 0) < this._roadAge) continue;
+      const traffic = (civ.techAge | 0) >= this._vehicleAge;
+      for (const [a, b] of this._civRoadSegments(civ)) {
+        const ax = this._tcx(a.x), az = this._tcz(a.y);
+        const bx = this._tcx(b.x), bz = this._tcz(b.y);
+        this._roadSegments.push({ ax, az, bx, bz, traffic, color: civ.color });
+        // Subdivide so the ribbon hugs the terrain over hills.
+        const dx = bx - ax, dz = bz - az;
+        const len = Math.hypot(dx, dz);
+        const steps = Math.max(1, Math.round(len / 0.6));
+        const ang = Math.atan2(dx, dz);
+        for (let s = 0; s < steps && pieces.length < MAX_PIECES; s++) {
+          const tm = (s + 0.5) / steps;
+          const mx = ax + dx * tm, mz = az + dz * tm;
+          const box = B.MeshBuilder.CreateBox('road',
+            { width: 0.13, height: 0.03, depth: (len / steps) * 1.05 }, this._scene);
+          box.position.set(mx, this._groundY(mx, mz) + 0.04, mz);
+          box.rotation.y = ang;
+          pieces.push(box);
+        }
+        if (pieces.length >= MAX_PIECES) break;
+      }
+    }
+
+    if (!pieces.length) return;
+    const merged = B.Mesh.MergeMeshes(pieces, true, true, undefined, false, false);
+    if (merged) {
+      merged.material   = this._sharedMat('road', '#34363e');
+      merged.isPickable = false;
+      merged.receiveShadows = true;
+      this._roadNode = merged;
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // VEHICLES  (instanced boxes driving the trafficked roads)
+  // ──────────────────────────────────────────────────────────
+  _buildVehicleTemplate() {
+    const B = BABYLON;
+    const tmpl = B.MeshBuilder.CreateBox('vehTmpl', { width: 0.07, height: 0.05, depth: 0.13 }, this._scene);
+    const mat = new B.StandardMaterial('vehMat', this._scene);
+    mat.diffuseColor  = new B.Color3(1, 1, 1);
+    mat.specularColor = new B.Color3(0.4, 0.4, 0.4);
+    mat.emissiveColor = new B.Color3(0.05, 0.05, 0.06);
+    tmpl.material = mat;
+    tmpl.registerInstancedBuffer('color', 4);
+    tmpl.instancedBuffers.color = new B.Color4(1, 1, 1, 1);
+    tmpl.isVisible  = false;
+    tmpl.position.y = -50;
+    this._vehicleTemplate = tmpl;
+  }
+
+  _updateVehicles(active) {
+    const B = BABYLON;
+    const trafficSegs = this._roadSegments.filter(s => s.traffic);
+    const target = (active && trafficSegs.length) ? this._vehicleBudget : 0;
+
+    while (this._vehicles.length < target) {
+      const seg = trafficSegs[(Math.random() * trafficSegs.length) | 0];
+      this._vehicles.push({ seg, t: Math.random(), dir: Math.random() < 0.5 ? 1 : -1, speed: 0.004 + Math.random() * 0.006 });
+    }
+    if (this._vehicles.length > target) this._vehicles.length = target;
+
+    for (const v of this._vehicles) {
+      v.t += v.speed * v.dir;
+      if (v.t > 1 || v.t < 0) {
+        if (trafficSegs.length) v.seg = trafficSegs[(Math.random() * trafficSegs.length) | 0];
+        v.t = v.dir > 0 ? 0 : 1;
+        if (Math.random() < 0.5) v.dir *= -1;
+      }
+    }
+
+    while (this._vehicleInstances.length < this._vehicles.length) {
+      const idx = this._vehicleInstances.length;
+      this._vehicleInstances.push(this._vehicleTemplate.createInstance('veh' + idx));
+    }
+    for (let i = 0; i < this._vehicleInstances.length; i++) {
+      const inst = this._vehicleInstances[i];
+      if (i < this._vehicles.length) {
+        const v = this._vehicles[i], s = v.seg;
+        const x = s.ax + (s.bx - s.ax) * v.t;
+        const z = s.az + (s.bz - s.az) * v.t;
+        inst.position.set(x, this._groundY(x, z) + 0.06, z);
+        inst.rotation.y = Math.atan2((s.bx - s.ax) * v.dir, (s.bz - s.az) * v.dir);
+        const col = B.Color3.FromHexString(s.color && s.color.length === 7 ? s.color : '#dddddd');
+        // Lighten toward white so cars stay legible over the civ-tinted town.
+        inst.instancedBuffers.color = new B.Color4((col.r + 1) / 2, (col.g + 1) / 2, (col.b + 1) / 2, 1);
+        inst.isVisible = true;
+      } else {
+        inst.isVisible = false;
+      }
+    }
   }
 
   // ──────────────────────────────────────────────────────────
@@ -996,16 +1215,29 @@ class Renderer3D {
 
     if (!fast) {
       if (this._frameCount % 3  === 0) this._updateTerritoryTexture();
-      if (this._frameCount % 10 === 0) this._diffSettlements();
+      if (this._frameCount % 10 === 0) { this._diffSettlements(); this._updateRoads(civs); }
 
       if (mode === 'sim') {
         const settlements = this._collectSettlements(civs);
         this._updateCitizens(civs, settlements);
         this._syncCitizens();
       }
+      // Traffic flows during the sim; parked once the final battle begins.
+      this._updateVehicles(mode === 'sim');
     }
 
     this._syncBattleUnits();
+  }
+
+  // Toggle / set the camera view mode. 'angled' = cinematic god-view,
+  // 'aerial' = near top-down map view. The render loop eases to the new
+  // angle. Returns the active mode so the UI can update its label.
+  setViewMode(mode) {
+    this._viewMode = mode === 'aerial' ? 'aerial' : 'angled';
+    return this._viewMode;
+  }
+  cycleViewMode() {
+    return this.setViewMode(this._viewMode === 'aerial' ? 'angled' : 'aerial');
   }
 
   addParticle(x, y, color, life = 20, vy) {

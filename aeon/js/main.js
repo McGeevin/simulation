@@ -118,6 +118,16 @@ function init() {
     });
   });
 
+  // Aerial / angled camera view toggle (3D renderer only).
+  const viewBtn = document.getElementById('view-toggle');
+  if (viewBtn) {
+    viewBtn.addEventListener('click', () => {
+      if (!Game.renderer || typeof Game.renderer.cycleViewMode !== 'function') return;
+      const mode = Game.renderer.cycleViewMode();
+      viewBtn.textContent = mode === 'aerial' ? '🎥 Angled' : '🛰 Aerial';
+    });
+  }
+
   // Sound toggle (reflects persisted mute state).
   const soundBtn = document.getElementById('sound-toggle');
   if (soundBtn) {
@@ -244,6 +254,14 @@ function startSim() {
 
     document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
     document.querySelector('.speed-btn[data-speed="1"]').classList.add('active');
+
+    // The aerial toggle only applies to the 3D renderer; hide it on 2D fallback.
+    const viewBtn = document.getElementById('view-toggle');
+    if (viewBtn) {
+      const has3D = Game.renderer && typeof Game.renderer.cycleViewMode === 'function';
+      viewBtn.style.display = has3D ? '' : 'none';
+      viewBtn.textContent = '🛰 Aerial';
+    }
 
     for (const c of Game.civs) updatePanel(c);
     renderLegend(Game.civs);

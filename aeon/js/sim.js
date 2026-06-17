@@ -37,6 +37,13 @@ function createCiv(config, side, world, rng) {
     faith: 50,
     magic: 0,
 
+    // Cumulative "investment" pools — unlike gold (which is spent on upkeep)
+    // these only ever grow, so special weapons can be gated on a civ having
+    // genuinely committed to an economic / covert / mercantile path.
+    wealth: 0,      // total gold ever earned (gold focus / trade economy)
+    trade: 0,       // total commerce moved   (trade & seafaring focus, coasts)
+    espionage: 0,   // total intelligence run  (espionage focus, scouts)
+
     // Military
     army: 5,
     weaponTechLevel: 1.0,
@@ -72,6 +79,26 @@ function biomeFitness(civ) {
     return 1.10;
   }
   return 1.0;
+}
+
+// The resource pools a weapon can be gated on. Keys map to fields on the
+// civ; all are cumulative so the test is monotonic (once met, stays met).
+const WEAPON_UNLOCK_POOLS = ['knowledge', 'wealth', 'trade', 'espionage', 'faith', 'magic'];
+
+// Is a weapon's unlock condition satisfied for this civ? A weapon may gate on
+// a tech age (`unlockAge`) and/or any cumulative resource pools (`unlockReq`,
+// e.g. { wealth: 200000 } or { espionage: 8000 }). All listed conditions must
+// hold. Race / focus prerequisites (`requires`) are enforced at setup time.
+function weaponUnlockMet(civ, w) {
+  if (!w) return false;
+  if ((w.unlockAge || 0) > civ.techAge) return false;
+  const req = w.unlockReq;
+  if (req) {
+    for (const key of WEAPON_UNLOCK_POOLS) {
+      if (req[key] !== undefined && (civ[key] || 0) < req[key]) return false;
+    }
+  }
+  return true;
 }
 
 // Apply all stacking modifiers for a stat
@@ -141,7 +168,17 @@ function tickYear(civ, year, world, map, others, log) {
 
   civ.metal  = civ.metal + popFactor * 1.5 * getMod(civ,'metal') * fitness;
   civ.wood   = civ.wood + popFactor * 2.0 * getMod(civ,'wood') * fitness;
-  civ.gold   = civ.gold + popFactor * 1.2 * getMod(civ,'gold') * getMod(civ,'economy');
+  const goldIncome = popFactor * 1.2 * getMod(civ,'gold') * getMod(civ,'economy');
+  civ.gold   = civ.gold + goldIncome;
+  civ.wealth += goldIncome;   // monotonic — never drained by upkeep below
+
+  // --- COMMERCE & INTELLIGENCE (cumulative, focus-driven) ---
+  // Trade rewards mercantile races/biomes and the trade/seafaring focuses;
+  // espionage rewards the espionage focus and far-seeing scouts. Every civ
+  // accrues a trickle (getMod returns 1 with no modifier) so the pools are
+  // meaningful only to those who actually specialise.
+  civ.trade     += popFactor * 0.9 * getMod(civ,'trade') * getMod(civ,'economy');
+  civ.espionage += popFactor * 0.8 * getMod(civ,'espionageGen') * Math.sqrt(getMod(civ,'scouting'));
 
   // --- KNOWLEDGE / TECH ---
   const researchGain = popFactor * 0.25 * getMod(civ, 'research');
@@ -176,7 +213,7 @@ function tickYear(civ, year, world, map, others, log) {
   // --- WEAPON UNLOCK ---
   if (!civ.weaponUnlocked && civ.weapon) {
     const w = WEAPONS[civ.weapon];
-    if (w && civ.techAge >= w.unlockAge) {
+    if (w && weaponUnlockMet(civ, w)) {
       civ.weaponUnlocked = true;
       log(civ.side, year, `Mastered ${w.name}.`, 'major');
     }

@@ -72,7 +72,7 @@ const RACES = {
     name: 'Goblins',
     desc: 'Numberless and cunning. Quantity is its own quality.',
     flavor: 'Individually weak and short-lived, goblins overwhelm through sheer fecundity and low cunning. A goblin horde is a tide that drowns better soldiers.',
-    mods: { research: 0.90, growth: 1.35, military: 0.90, lifespan: 0.80, gold: 1.15 },
+    mods: { research: 0.90, growth: 1.35, military: 0.90, lifespan: 0.80, gold: 1.15, espionageGen: 1.40 },
     biomePref: ['swamp','jungle','mountain','badlands'],
     popCapMod: 1.30,
   },
@@ -96,7 +96,7 @@ const RACES = {
     name: 'Fae',
     desc: 'Capricious spirits of wild magic. Brilliant yet brittle.',
     flavor: 'Tricksters woven from raw magic and moonlight. The fae bend reality with ease but shatter in open war, hoarding their few precious numbers.',
-    mods: { research: 1.20, growth: 0.80, military: 0.80, magic: 1.60, lifespan: 1.30 },
+    mods: { research: 1.20, growth: 0.80, military: 0.80, magic: 1.60, lifespan: 1.30, espionageGen: 1.50 },
     biomePref: ['forest','swamp','jungle'],
     popCapMod: 0.80,
   },
@@ -156,7 +156,7 @@ const FOCUSES = {
     name: 'Trade',
     desc: 'Coffers overflow. Rich but militarily soft.',
     flavor: 'Gold is the quiet emperor. Merchant states buy what they cannot build and bribe what they cannot beat — until someone calls the bluff.',
-    mods: { gold: 1.60, economy: 1.30, armyGrowth: 0.85, diplomacy: 1.30 },
+    mods: { gold: 1.60, economy: 1.30, trade: 1.50, armyGrowth: 0.85, diplomacy: 1.30 },
   },
   magic: {
     name: 'Magic',
@@ -193,7 +193,7 @@ const FOCUSES = {
     name: 'Espionage',
     desc: 'Shadows and saboteurs. Quietly undermines every rival.',
     flavor: 'The dagger behind the smile. Spymaster states thrive on stolen secrets and steady nerves, rarely seen and never quite trusted.',
-    mods: { scouting: 1.40, gold: 1.15, stability: 1.10, research: 1.05, armyGrowth: 0.95, eventVariance: 0.80 },
+    mods: { scouting: 1.40, gold: 1.15, stability: 1.10, research: 1.05, armyGrowth: 0.95, eventVariance: 0.80, espionageGen: 2.60 },
   },
   seafaring: {
     name: 'Seafaring',
@@ -329,6 +329,124 @@ const WEAPONS = {
     unlockAge: 9, // Stellar
     battleMod: { ranged: 3.0, antiDefense: 2.0, attack: 1.50 },
     requires: { focusOr: ['science','industry'] },
+  },
+
+  // ════════════════════════════════════════════════════════════════════
+  // ALTERNATIVE-PATH WEAPONS
+  // These are NOT gated on tech age alone. Each is unlocked mid-run once a
+  // civ has poured itself into a particular grand strategy — measured by a
+  // cumulative pool (wealth, trade, espionage, faith, magic). They make
+  // Trade, Espionage, Faith, Diplomacy and Magic genuine routes to a
+  // war-winning special weapon, not just Science and Industry.
+  // `unlockReq` pools are checked live during the sim (see weaponUnlockMet).
+  // ════════════════════════════════════════════════════════════════════
+
+  // ── Wealth-gated (trade / diplomacy economies) ──────────────────────
+  mercenaries: {
+    name: 'Mercenary Armadas',
+    desc: 'Hire the finest soldiers gold can buy — whole armies for rent.',
+    flavor: 'Why train an army when you can simply buy the best of everyone else\'s? A deep enough treasury fields veterans no academy could produce.',
+    unlockAge: 4,
+    unlockReq: { wealth: 12000000 },
+    requires: { focusOr: ['trade', 'diplomacy'] },
+    battleMod: { attack: 2.10, shock: 1.60, morale: 1.20 },
+  },
+  goldenLegion: {
+    name: 'Golden Legion',
+    desc: 'A gilded professional host — the costliest army ever fielded.',
+    flavor: 'Lacquered armor, peerless steel, soldiers paid better than kings. Ruinously expensive to raise — and very nearly impossible to stop.',
+    unlockAge: 6,
+    unlockReq: { wealth: 35000000 },
+    requires: { focusOr: ['trade', 'diplomacy'] },
+    battleMod: { attack: 2.60, defense: 1.80, elite: 1.50 },
+  },
+
+  // ── Trade-gated (commerce / seafaring) ──────────────────────────────
+  blockade: {
+    name: 'Blockade Fleets',
+    desc: 'Strangle enemy supply lines before a blow is struck.',
+    flavor: 'Masters of every trade lane simply close them. The foe marches to war already hungry, broke, and short of powder.',
+    unlockAge: 4,
+    unlockReq: { trade: 8000000 },
+    requires: { focusOr: ['trade', 'seafaring'] },
+    battleMod: { preBattle: 0.35, ranged: 2.00, antiDefense: 1.40 },
+  },
+
+  // ── Espionage-gated (covert powers) ─────────────────────────────────
+  saboteurs: {
+    name: 'Saboteur Cells',
+    desc: 'Wreck fortifications and supply from within, before battle.',
+    flavor: 'The war is won in the dark weeks before it starts — poisoned wells, spiked guns, and maps that lie to the enemy who drew them.',
+    unlockAge: 3,
+    unlockReq: { espionage: 8000000 },
+    requires: { focusOr: ['espionage'] },
+    battleMod: { preBattle: 0.30, antiDefense: 2.00, ranged: 1.40 },
+  },
+  ghostArmy: {
+    name: 'Ghost Army',
+    desc: 'Spy-webs so deep the enemy is beaten before forming ranks.',
+    flavor: 'Phantom legions, forged orders, and a foe that no longer trusts its own generals. They lose to an army that was never quite there.',
+    unlockAge: 6,
+    unlockReq: { espionage: 30000000 },
+    requires: { focusOr: ['espionage'] },
+    battleMod: { elite: 2.50, fear: 1.60, preBattle: 0.40 },
+  },
+
+  // ── Faith-gated (devotion / culture) ────────────────────────────────
+  crusade: {
+    name: 'Grand Crusade',
+    desc: 'A holy-war host that simply does not know how to break.',
+    flavor: 'A million zealots under one banner, certain that death is merely a promotion. Fanaticism turns out to be its own kind of armor.',
+    unlockAge: 3,
+    unlockReq: { faith: 1500000 },
+    requires: { focusOr: ['faith', 'culture'] },
+    battleMod: { morale: 1.60, elite: 2.20, shock: 1.50 },
+  },
+  divineWrath: {
+    name: 'Divine Wrath',
+    desc: 'Call down the judgment of heaven on the unbeliever.',
+    flavor: 'When devotion runs deep enough, the sky answers. Fire, plague and terror fall from a cloudless heaven onto the enemy ranks.',
+    unlockAge: 5,
+    unlockReq: { faith: 4000000 },
+    requires: { focusOr: ['faith'] },
+    battleMod: { ranged: 2.60, fear: 2.00, elite: 1.50 },
+  },
+
+  // ── Magic-gated ─────────────────────────────────────────────────────
+  arcaneCataclysm: {
+    name: 'Arcane Cataclysm',
+    desc: 'World-ending sorcery that rewrites the battlefield outright.',
+    flavor: 'The last spell of an age — storms of raw creation that unmake armies, melt fortresses, and leave the very land humming for centuries.',
+    unlockAge: 9,
+    unlockReq: { magic: 800000 },
+    requires: { focusOr: ['magic'] },
+    battleMod: { ranged: 3.00, shock: 2.00, fear: 1.60 },
+  },
+
+  // ── Deep-science / deep-time (the new high ages encode the knowledge) ─
+  gravLance: {
+    name: 'Gravitic Lance Array',
+    desc: 'Orbital lances that fold space itself onto the enemy line.',
+    flavor: 'Beams that bend the geometry of the battlefield. There is no cover from a weapon that strikes from every direction at once.',
+    unlockAge: 12, // Ascendant
+    requires: { focusOr: ['science', 'industry'] },
+    battleMod: { ranged: 3.20, antiDefense: 2.00, attack: 1.40 },
+  },
+  singularityCannon: {
+    name: 'Singularity Cannon',
+    desc: 'Fire a controlled black hole. Nothing downrange remains.',
+    flavor: 'A weaponised event horizon. Whole armies, their fortresses and the ground beneath them simply cease to have ever existed.',
+    unlockAge: 14, // Aetherial
+    requires: { focusOr: ['science'] },
+    battleMod: { attack: 2.40, antiDefense: 2.40, ranged: 1.70 },
+  },
+  realityEngine: {
+    name: 'Reality Engine',
+    desc: 'Edit the outcome of the war directly. The ultimate weapon.',
+    flavor: 'Why fight a battle you can simply rewrite? At the Omega Age war becomes a question of which history is permitted to have happened.',
+    unlockAge: 16, // Omega
+    requires: { focusOr: ['science', 'magic'] },
+    battleMod: { elite: 2.60, attack: 2.60, fear: 2.00 },
   },
 };
 
@@ -523,6 +641,15 @@ const TECH_AGES = [
   { name: 'Stellar',      knowledgeRequired: 28000,  armyTechMult: 9.8,  desc: 'Orbit, fusion, and the high ground of space.' },
   { name: 'Singularity',  knowledgeRequired: 60000,  armyTechMult: 11.5, desc: 'Self-improving minds beyond mortal grasp.' },
   { name: 'Transcendent', knowledgeRequired: 150000, armyTechMult: 13.5, desc: 'Reality itself becomes a tool of war.' },
+  // ── Deep-time ages ──────────────────────────────────────────────────
+  // Calibrated against measured knowledge growth: a strong research state
+  // reaches Ascendant in a ~2,000-year run, the top rungs only in 5,000 to
+  // 10,000-year sagas — and a war-focused civ may never crest them at all.
+  { name: 'Ascendant',    knowledgeRequired: 500000,    armyTechMult: 15.5, desc: 'Minds and machines merge into a planetary intellect.' },
+  { name: 'Cosmic',       knowledgeRequired: 1200000,   armyTechMult: 17.8, desc: 'Dyson light and star-spanning logistics.' },
+  { name: 'Aetherial',    knowledgeRequired: 2500000,   armyTechMult: 20.5, desc: 'Matter, gravity and time bent to will.' },
+  { name: 'Empyrean',     knowledgeRequired: 5000000,   armyTechMult: 23.5, desc: 'Command of the vacuum itself; war without matter.' },
+  { name: 'Omega',        knowledgeRequired: 8000000,   armyTechMult: 27.0, desc: 'The final theory — reality rewritten on a whim.' },
 ];
 
 // ============================================================
@@ -578,9 +705,20 @@ const STAT_META = {
   magicGen:     { label: 'Magic Output',  dir: 1 },
   diplomacy:    { label: 'Diplomacy',     dir: 1 },
   trade:        { label: 'Trade',         dir: 1 },
+  espionageGen: { label: 'Espionage',     dir: 1 },
   environment:  { label: 'Eco-harmony',   dir: 1 },
   popCapMod:    { label: 'Pop. Cap',      dir: 1 },
   eventVariance:{ label: 'Event Swing',   dir: 0 },
+};
+
+// Friendly labels for the cumulative pools a weapon can be gated on.
+const POOL_LABELS = {
+  knowledge: 'Knowledge',
+  wealth:    'Wealth',
+  trade:     'Trade',
+  espionage: 'Espionage',
+  faith:     'Faith',
+  magic:     'Magic',
 };
 
 // Friendly labels for weapon battle effects (qualitative tags).
