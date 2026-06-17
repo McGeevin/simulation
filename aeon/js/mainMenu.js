@@ -67,12 +67,14 @@ const AeonMenu = {
           <div class="opt-grp">
             <label class="opt-toggle"><span>Crisis Events</span>
               <input type="checkbox" id="opt-crisis"></label>
+            <p class="opt-help">Pause the simulation at pivotal moments — plagues, prophets, invasions, succession disputes — to make a choice that reshapes your civilization. Off = an uninterrupted, hands-off run with no behaviour change.</p>
             <label class="opt-sub">Frequency
               <select id="opt-crisis-freq">
                 <option value="50">Every 50 years</option>
                 <option value="75">Every 75 years</option>
                 <option value="100">Every 100 years</option>
               </select></label>
+            <p class="opt-help opt-help-sub">How often a crisis can strike. Shorter intervals mean a busier, more interactive age.</p>
           </div>
           <div class="opt-grp">
             <label class="opt-sub">AI Doctrine <small>(primary antagonist)</small>
@@ -84,6 +86,8 @@ const AeonMenu = {
                 <option value="warmonger">Warmonger</option>
                 <option value="survivalist">Survivalist</option>
               </select></label>
+            <p class="opt-help">The guiding strategy of your chief rival — how they expand, fight, and treat with you. Other rivals are assigned doctrines by their race.</p>
+            <div class="opt-doctrine-desc" id="opt-doctrine-desc"></div>
           </div>
           <div class="opt-grp">
             <label class="opt-sub">Diplomacy Depth
@@ -91,12 +95,15 @@ const AeonMenu = {
                 <option value="simple">Simple</option>
                 <option value="full">Full</option>
               </select></label>
+            <p class="opt-help" id="opt-diplo-desc"></p>
           </div>
           <div class="opt-grp">
             <label class="opt-toggle"><span>Final Convergence</span>
               <input type="checkbox" id="opt-convergence"></label>
+            <p class="opt-help">A world-ending threat announced at the three-quarter mark, building through warnings to a climactic last battle at the end of the age. Off = the simulation runs to its natural close.</p>
             <label class="opt-toggle"><span>Ironman Mode</span>
               <input type="checkbox" id="opt-ironman"></label>
+            <p class="opt-help">One life — no reloads, no bailing to setup mid-run. The age ends for good if your civilization falls, and every outcome is recorded in your World History.</p>
           </div>
           <button class="menu-back" data-act="back">‹ Back</button>
         </div>
@@ -223,10 +230,32 @@ const AeonMenu = {
       gameConfig.convergenceEnabled = conv.checked;
       gameConfig.ironman = iron.checked;
       saveGameConfig();
+      this._renderDoctrineDesc();
+      this._renderDiploDesc();
     };
     [crisis, freq, doctrine, diplo, conv, iron].forEach(el => {
       if (el) el.addEventListener('change', save);
     });
+  },
+
+  // Live behaviour/weakness blurb for the selected antagonist doctrine.
+  _renderDoctrineDesc() {
+    const box = document.getElementById('opt-doctrine-desc');
+    const sel = document.getElementById('opt-doctrine');
+    if (!box || !sel) return;
+    const d = (typeof DOCTRINES !== 'undefined') ? DOCTRINES[sel.value] : null;
+    if (!d) { box.innerHTML = ''; return; }
+    box.innerHTML = `<span class="dd-behaviour">${escapeHtml(d.desc)}</span>
+      <span class="dd-weak"><b>Weakness:</b> ${escapeHtml(d.weakness)}</span>`;
+  },
+
+  _renderDiploDesc() {
+    const box = document.getElementById('opt-diplo-desc');
+    const sel = document.getElementById('opt-diplo');
+    if (!box || !sel) return;
+    box.textContent = sel.value === 'full'
+      ? 'Rivals remember across the ages — grievances, debts, broken alliances and honoured pacts all accumulate and drive their behaviour, and can erupt into grudge wars and betrayals.'
+      : 'Rivals track only a single friend-or-foe standing. No long memory of past slights or favours.';
   },
 
   _syncOptionsUI() {
@@ -237,6 +266,8 @@ const AeonMenu = {
     set('opt-diplo', gameConfig.diplomacyDepth);
     set('opt-convergence', gameConfig.convergenceEnabled);
     set('opt-ironman', gameConfig.ironman);
+    this._renderDoctrineDesc();
+    this._renderDiploDesc();
   },
 
   // ── "Play As" selector on the setup screen ──────────────────
