@@ -1,0 +1,264 @@
+// ============================================================
+// AEON :: MAIN MENU  (Feature 1)
+// Renders a menu BEFORE the sim. "New Game → Sandbox" reveals the existing
+// setup screen and the sim runs exactly as before. Options write to
+// gameConfig; every other module reads from there.
+//
+// Built entirely in JS and layered on top — if this file is absent the setup
+// screen stays active (its HTML default) and AEON behaves as it always has.
+// ============================================================
+
+const AeonMenu = {
+  init() {
+    if (typeof gameConfig === 'undefined') return;       // foundation missing → no menu
+    loadGameConfig();
+    if (typeof LegacySystem !== 'undefined') LegacySystem.init();
+
+    this._injectPlayAs();
+    this._injectDiplomacyPanel();
+    this._buildMenu();
+    this._buildHistoryScreen();
+
+    // In a multiplayer match the challenge link should go straight to the
+    // locked setup — don't interpose the menu.
+    if (typeof MP !== 'undefined' && MP.active) return;
+
+    const setup = document.getElementById('setup-screen');
+    if (setup) setup.classList.remove('active');
+    const menu = document.getElementById('menu-screen');
+    if (menu) menu.classList.add('active');
+  },
+
+  // ── The menu screen ─────────────────────────────────────────
+  _buildMenu() {
+    if (document.getElementById('menu-screen')) return;
+    const screen = document.createElement('div');
+    screen.id = 'menu-screen';
+    screen.className = 'screen aeon-menu';
+    screen.innerHTML = `
+      <div class="menu-inner">
+        <h1 class="menu-title">AEON</h1>
+        <p class="menu-tag">Forge a civilization. Outlast the Convergence. Leave a legend.</p>
+        <div class="menu-buttons">
+          <button class="menu-btn" data-act="newgame">New Game</button>
+          <button class="menu-btn" data-act="options">Options</button>
+          <button class="menu-btn" id="menu-history-btn" data-act="history">World History</button>
+          <button class="menu-btn" id="menu-continue-btn" data-act="continue" disabled>Continue</button>
+        </div>
+
+        <div class="menu-panel" id="menu-newgame" hidden>
+          <h2>New Game</h2>
+          <button class="submenu-btn" data-mode="sandbox">Sandbox<small>The classic open simulation</small></button>
+          <button class="submenu-btn disabled" disabled>Campaign<small>Coming Soon</small></button>
+          <button class="submenu-btn disabled" disabled>Ironman Run<small>Coming Soon — toggle Ironman in Options</small></button>
+          <button class="submenu-btn disabled" disabled>Legacy World<small>Coming Soon</small></button>
+          <button class="menu-back" data-act="back">‹ Back</button>
+        </div>
+
+        <div class="menu-panel" id="menu-options" hidden>
+          <h2>Options</h2>
+          <div class="opt-grp">
+            <label class="opt-toggle"><span>Crisis Events</span>
+              <input type="checkbox" id="opt-crisis"></label>
+            <label class="opt-sub">Frequency
+              <select id="opt-crisis-freq">
+                <option value="50">Every 50 years</option>
+                <option value="75">Every 75 years</option>
+                <option value="100">Every 100 years</option>
+              </select></label>
+          </div>
+          <div class="opt-grp">
+            <label class="opt-sub">AI Doctrine <small>(primary antagonist)</small>
+              <select id="opt-doctrine">
+                <option value="expansionist">Expansionist</option>
+                <option value="theocratic">Theocratic</option>
+                <option value="isolationist">Isolationist</option>
+                <option value="mercantile">Mercantile</option>
+                <option value="warmonger">Warmonger</option>
+                <option value="survivalist">Survivalist</option>
+              </select></label>
+          </div>
+          <div class="opt-grp">
+            <label class="opt-sub">Diplomacy Depth
+              <select id="opt-diplo">
+                <option value="simple">Simple</option>
+                <option value="full">Full</option>
+              </select></label>
+          </div>
+          <div class="opt-grp">
+            <label class="opt-toggle"><span>Final Convergence</span>
+              <input type="checkbox" id="opt-convergence"></label>
+            <label class="opt-toggle"><span>Ironman Mode</span>
+              <input type="checkbox" id="opt-ironman"></label>
+          </div>
+          <button class="menu-back" data-act="back">‹ Back</button>
+        </div>
+      </div>`;
+    document.body.appendChild(screen);
+
+    screen.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-act],[data-mode]');
+      if (!btn) return;
+      const act = btn.dataset.act;
+      const mode = btn.dataset.mode;
+      if (mode === 'sandbox') { this._startSandbox(); return; }
+      if (act === 'newgame') this._showPanel('menu-newgame');
+      else if (act === 'options') { this._syncOptionsUI(); this._showPanel('menu-options'); }
+      else if (act === 'history') this._openHistory();
+      else if (act === 'back') this._showPanel(null);
+    });
+
+    this._wireOptions();
+    this._refreshMenuState();
+  },
+
+  _showPanel(id) {
+    ['menu-newgame', 'menu-options'].forEach(p => {
+      const el = document.getElementById(p);
+      if (el) el.hidden = (p !== id);
+    });
+    const buttons = document.querySelector('#menu-screen .menu-buttons');
+    if (buttons) buttons.style.display = id ? 'none' : '';
+  },
+
+  _refreshMenuState() {
+    const hist = document.getElementById('menu-history-btn');
+    if (hist) {
+      const has = aeonHasChronicles();
+      hist.disabled = !has;
+      hist.classList.toggle('disabled', !has);
+      if (!has) hist.innerHTML = 'World History<small>Coming Soon</small>';
+      else hist.textContent = 'World History';
+    }
+    // Continue stays disabled — AEON has no mid-run save to resume.
+    const cont = document.getElementById('menu-continue-btn');
+    if (cont) cont.classList.add('disabled');
+  },
+
+  _startSandbox() {
+    gameConfig.mode = 'sandbox';
+    const menu = document.getElementById('menu-screen');
+    if (menu) menu.classList.remove('active');
+    showScreen('setup-screen');
+    this._showPanel(null);
+  },
+
+  // ── Options ⇄ gameConfig ────────────────────────────────────
+  _wireOptions() {
+    const crisis = document.getElementById('opt-crisis');
+    const freq = document.getElementById('opt-crisis-freq');
+    const doctrine = document.getElementById('opt-doctrine');
+    const diplo = document.getElementById('opt-diplo');
+    const conv = document.getElementById('opt-convergence');
+    const iron = document.getElementById('opt-ironman');
+
+    const save = () => {
+      gameConfig.crisisEnabled = crisis.checked;
+      gameConfig.crisisInterval = parseInt(freq.value) || 75;
+      gameConfig.antagonistDoctrine = doctrine.value;
+      gameConfig.diplomacyDepth = diplo.value;
+      gameConfig.convergenceEnabled = conv.checked;
+      gameConfig.ironman = iron.checked;
+      saveGameConfig();
+    };
+    [crisis, freq, doctrine, diplo, conv, iron].forEach(el => {
+      if (el) el.addEventListener('change', save);
+    });
+  },
+
+  _syncOptionsUI() {
+    const set = (id, v) => { const el = document.getElementById(id); if (el) { if (el.type === 'checkbox') el.checked = !!v; else el.value = v; } };
+    set('opt-crisis', gameConfig.crisisEnabled);
+    set('opt-crisis-freq', String(gameConfig.crisisInterval));
+    set('opt-doctrine', gameConfig.antagonistDoctrine);
+    set('opt-diplo', gameConfig.diplomacyDepth);
+    set('opt-convergence', gameConfig.convergenceEnabled);
+    set('opt-ironman', gameConfig.ironman);
+  },
+
+  // ── "Play As" selector on the setup screen ──────────────────
+  _injectPlayAs() {
+    const world = document.querySelector('.world-config');
+    if (!world || document.getElementById('play-as')) return;
+    const label = document.createElement('label');
+    label.innerHTML = `Play As <select id="play-as"><option value="A">Side A</option><option value="B">Side B</option></select>`;
+    // Place it near the top of the world column.
+    const firstLabel = world.querySelector('label');
+    if (firstLabel) world.insertBefore(label, firstLabel.nextSibling);
+    else world.appendChild(label);
+
+    const rebuild = () => {
+      const sel = document.getElementById('play-as');
+      if (!sel) return;
+      const three = (typeof playerCount === 'function') ? playerCount() === 3 : false;
+      const cur = sel.value;
+      sel.innerHTML = '<option value="A">Side A</option><option value="B">Side B</option>' + (three ? '<option value="C">Side C</option>' : '');
+      sel.value = (cur === 'C' && !three) ? 'A' : cur;
+    };
+    const pc = document.getElementById('player-count');
+    if (pc) pc.addEventListener('click', () => setTimeout(rebuild, 0));
+  },
+
+  // ── Diplomacy panel + toggle (shown during the sim) ─────────
+  _injectDiplomacyPanel() {
+    if (document.getElementById('diplo-panel')) return;
+    const map = document.querySelector('.map-container');
+    if (map) {
+      const panel = document.createElement('div');
+      panel.id = 'diplo-panel';
+      panel.className = 'diplo-panel';
+      map.appendChild(panel);
+    }
+    const headerRight = document.querySelector('.header-right');
+    if (headerRight && !document.getElementById('diplo-toggle')) {
+      const btn = document.createElement('button');
+      btn.id = 'diplo-toggle';
+      btn.title = 'Toggle diplomacy panel';
+      btn.textContent = '🕊';
+      btn.style.cssText = 'background:none;border:1px solid rgba(255,255,255,.18);border-radius:6px;color:inherit;cursor:pointer;font-size:15px;padding:3px 8px;margin-right:8px;';
+      btn.addEventListener('click', () => {
+        const panel = document.getElementById('diplo-panel');
+        if (panel) panel.classList.toggle('show');
+      });
+      headerRight.insertBefore(btn, headerRight.firstChild);
+    }
+  },
+
+  // ── World History screen ────────────────────────────────────
+  _buildHistoryScreen() {
+    if (document.getElementById('history-screen')) return;
+    const screen = document.createElement('div');
+    screen.id = 'history-screen';
+    screen.className = 'screen aeon-history';
+    screen.innerHTML = `
+      <div class="history-inner">
+        <div class="history-head">
+          <h1>World History</h1>
+          <div>
+            <button id="history-clear" class="secondary-btn" type="button">Clear</button>
+            <button id="history-back" class="secondary-btn" type="button">‹ Menu</button>
+          </div>
+        </div>
+        <div class="history-list" id="history-list"></div>
+      </div>`;
+    document.body.appendChild(screen);
+    screen.querySelector('#history-back').addEventListener('click', () => {
+      showScreen('menu-screen');
+    });
+    screen.querySelector('#history-clear').addEventListener('click', () => {
+      if (typeof LegacySystem !== 'undefined') LegacySystem.clearHistory();
+      this._openHistory();
+      this._refreshMenuState();
+    });
+  },
+
+  _openHistory() {
+    if (typeof LegacySystem === 'undefined') return;
+    LegacySystem.renderWorldHistory(document.getElementById('history-list'));
+    showScreen('history-screen');
+  },
+};
+
+if (typeof window !== 'undefined') {
+  window.AeonMenu = AeonMenu;
+}

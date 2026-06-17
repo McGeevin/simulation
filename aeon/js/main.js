@@ -164,6 +164,12 @@ function init() {
     if (Game.renderer) Game.renderer.resize();
     if (Game.timeline) Game.timeline.resize();
   });
+
+  // === AEON ADDITION - MAIN MENU INIT - START ===
+  // Build the main menu (Feature 1) over the setup screen. If the module is
+  // absent the setup screen stays active and AEON behaves exactly as before.
+  if (typeof AeonMenu !== 'undefined') AeonMenu.init();
+  // === AEON ADDITION - MAIN MENU INIT - END ===
 }
 
 function startSim() {
@@ -210,6 +216,10 @@ function startSim() {
   Game.civC = players === 3 ? createCiv(config.C, 'C', world, Game.rng) : null;
   Game.civs = [Game.civA, Game.civB].concat(Game.civC ? [Game.civC] : []);
   Game.world = world;
+
+  // === AEON ADDITION - FEATURE PER-RUN INIT - START ===
+  aeonInitRun();
+  // === AEON ADDITION - FEATURE PER-RUN INIT - END ===
 
   Game.year = 0;
   Game.speed = 1;
@@ -283,6 +293,63 @@ function updateAllPanels() {
   for (const c of Game.civs) updatePanel(c);
 }
 
+// === AEON ADDITION - FEATURE WIRING - START ===
+// Initialise every feature module for a new run. Each is guarded so a missing
+// or disabled module is simply skipped, leaving the base sim untouched.
+function aeonInitRun() {
+  if (typeof gameConfig === 'undefined') return;
+
+  // Which side the human plays (from the injected "Play As" selector).
+  const playAs = document.getElementById('play-as');
+  gameConfig.playerSide = (playAs && playAs.value) ? playAs.value : 'A';
+  if (!Game.civs.some(c => c.side === gameConfig.playerSide)) gameConfig.playerSide = 'A';
+
+  // Dedicated deterministic RNG for the feature systems (keeps civ RNGs intact).
+  Game._aeonRng = Game.rng.fork(0xAE0F);
+  Game._antagonistSide = null;
+  Game._convergenceChronicle = null;
+  Game._convergenceMercy = null;
+  Game._chronicle = null;
+  Game._skipping = false;
+
+  if (typeof LegacySystem !== 'undefined') LegacySystem.init();
+  if (typeof AiDoctrines !== 'undefined') { AiDoctrines.init(); AiDoctrines.assign(Game.civs, Game._aeonRng); }
+  if (typeof CrisisSystem !== 'undefined') CrisisSystem.init();
+  if (typeof Diplomacy !== 'undefined') {
+    Diplomacy.init(Game.civs);
+    // Cultural memory from past runs nudges rivals' opening stance.
+    if (typeof LegacySystem !== 'undefined' && Diplomacy.records && Diplomacy.active) {
+      const bias = LegacySystem.culturalOpeningBias ? LegacySystem.culturalOpeningBias() : 0;
+      if (bias) for (const side in Diplomacy.records) Diplomacy.records[side].score += bias;
+      Diplomacy.renderPanel();
+    }
+  }
+  if (typeof ConvergenceSystem !== 'undefined') ConvergenceSystem.init();
+  if (typeof LegacySystem !== 'undefined') {
+    LegacySystem.applyToNewGame(Game.map, Game.civs);
+    LegacySystem.enforceRunStart();
+  }
+}
+
+// Called after each simulated year (from simStep and the skip loop). Returns
+// true if a feature opened a modal and the sim must pause until a choice.
+function aeonYearHook(year) {
+  if (typeof Diplomacy !== 'undefined' && Diplomacy.active) Diplomacy.tickYear(year);
+  if (typeof ConvergenceSystem !== 'undefined' && ConvergenceSystem.active && ConvergenceSystem.checkYear(year)) return true;
+  if (typeof CrisisSystem !== 'undefined' && CrisisSystem.active && CrisisSystem.checkYear(year)) return true;
+  return false;
+}
+
+// Resume the sim after a crisis/convergence choice — continuing either the
+// real-time loop or the interruptible "Skip to End" run.
+function aeonResumeSim() {
+  const overlay = document.getElementById('crisis-overlay');
+  if (overlay) overlay.classList.remove('show');
+  if (Game._skipping) advanceSkip();
+  else Game.running = true;
+}
+// === AEON ADDITION - FEATURE WIRING - END ===
+
 function validateConfig(side) {
   const race = RACES[side.race];
   const focus = FOCUSES[side.focus];
@@ -331,20 +398,38 @@ function skipToBattle() {
   overlay.textContent = 'SIMULATING…';
   overlay.classList.add('show');
 
-  // Defer so the overlay paints before the (possibly long) synchronous run.
-  setTimeout(() => {
-    const log = (side, year, text, tag) => {
-      logEvent(side, year, text, tag);
-      Game.timeline.addEvent(year, tag, side);
-    };
-    while (Game.year < Game.maxYear) {
-      Game.year++;
-      tickAll(Game.year, log);
-    }
-    updateAllPanels();
-    startBattle();
-  }, 40);
+  // === AEON ADDITION - INTERRUPTIBLE SKIP - START ===
+  // The skip now pauses for each crisis / convergence choice and resumes via
+  // aeonResumeSim(). Stop the real-time loop so it can't advance years in
+  // parallel with the skip loop while a modal is open.
+  Game._skipping = true;
+  Game.running = false;
+  setTimeout(advanceSkip, 40);
+  // === AEON ADDITION - INTERRUPTIBLE SKIP - END ===
 }
+
+// === AEON ADDITION - INTERRUPTIBLE SKIP HELPER - START ===
+// Fast-forwards the sim, breaking out whenever a feature modal opens; the
+// modal's choice handler calls aeonResumeSim() → advanceSkip() to continue.
+function advanceSkip() {
+  if (Game.phase !== 'sim') { Game._skipping = false; return; }
+  const log = (side, year, text, tag) => {
+    logEvent(side, year, text, tag);
+    if (Game.timeline) Game.timeline.addEvent(year, tag, side);
+  };
+  while (Game.year < Game.maxYear) {
+    Game.year++;
+    tickAll(Game.year, log);
+    if (typeof aeonYearHook === 'function' && aeonYearHook(Game.year)) {
+      updateAllPanels();
+      return;   // modal open; resumes via aeonResumeSim()
+    }
+  }
+  Game._skipping = false;
+  updateAllPanels();
+  startBattle();
+}
+// === AEON ADDITION - INTERRUPTIBLE SKIP HELPER - END ===
 
 function gameLoop(timestamp) {
   const dt = timestamp - Game.lastFrameTime;
@@ -384,6 +469,14 @@ function simStep(dt) {
 
     tickAll(Game.year, log);
 
+    // === AEON ADDITION - CRISIS / CONVERGENCE PAUSE - START ===
+    if (typeof aeonYearHook === 'function' && aeonYearHook(Game.year)) {
+      Game.running = false;          // a modal opened — pause until a choice is made
+      updateAllPanels();
+      return;
+    }
+    // === AEON ADDITION - CRISIS / CONVERGENCE PAUSE - END ===
+
     if (Game.year >= Game.maxYear) { startBattle(); return; }
   }
 
@@ -399,6 +492,23 @@ function startBattle() {
   Game.running = true;
   if (typeof Sfx !== 'undefined') Sfx.battleStart();
 
+  // === AEON ADDITION - CONVERGENCE FINAL BATTLE - START ===
+  Game._skipping = false;
+  if (typeof ConvergenceSystem !== 'undefined' && ConvergenceSystem.active) {
+    // Play the 3-phase Convergence; it adjusts the player civ's state and
+    // then calls proceedWithBattle() to run the unchanged resolution below.
+    ConvergenceSystem.runFinalBattle(proceedWithBattle);
+    return;
+  }
+  // === AEON ADDITION - CONVERGENCE FINAL BATTLE - END ===
+
+  proceedWithBattle();
+}
+
+// === AEON ADDITION - BATTLE RESOLUTION SPLIT - START ===
+// Original startBattle body, extracted verbatim so the Convergence system can
+// run its phases first and then trigger the identical resolution + visuals.
+function proceedWithBattle() {
   Game.battleOutcome = Game.civC
     ? resolveBattle3(Game.civA, Game.civB, Game.civC, Game.world, Game.rng)
     : resolveBattle(Game.civA, Game.civB, Game.world, Game.rng);
@@ -418,6 +528,7 @@ function startBattle() {
     Game.battle.start();
   }, 900);
 }
+// === AEON ADDITION - BATTLE RESOLUTION SPLIT - END ===
 
 function battleStep() {
   if (!Game.battle) return; // brief dramatic pause before the armies form up
@@ -436,6 +547,16 @@ function finishGame() {
 
   const outcome = Game.battleOutcome;
   const winner = outcome.winner;
+
+  // === AEON ADDITION - LEGACY CHRONICLE - START ===
+  if (typeof ConvergenceSystem !== 'undefined' && ConvergenceSystem._removeHud) ConvergenceSystem._removeHud();
+  // A Chronicle is a Legacy/Ironman/Convergence artifact — only written when
+  // one of those systems is active, so a fully-off run leaves no new trace.
+  if (typeof LegacySystem !== 'undefined' && typeof gameConfig !== 'undefined' &&
+      (gameConfig.ironman || gameConfig.convergenceEnabled)) {
+    try { Game._chronicle = LegacySystem.finalize(outcome); } catch (e) { console.warn('Chronicle failed:', e); }
+  }
+  // === AEON ADDITION - LEGACY CHRONICLE - END ===
 
   // Apply final casualties: the victor is bloodied, the conquered wiped out.
   if (outcome.threeWay) {
@@ -461,6 +582,13 @@ function finishGame() {
     titleEl.style.color = winner.color;
     document.getElementById('winner-subtitle').textContent =
       `${RACES[winner.race].name} · ${FOCUSES[winner.focus].name} · Conquered the world in Year ${Game.maxYear}`;
+
+    // === AEON ADDITION - EPITAPH - START ===
+    if (Game._chronicle && Game._chronicle.epitaph) {
+      const sub = document.getElementById('winner-subtitle');
+      if (sub) sub.innerHTML += `<div class="aftermath-epitaph" style="margin-top:8px;font-style:italic;color:#c2b58a;">“${escapeHtml(Game._chronicle.epitaph)}”</div>`;
+    }
+    // === AEON ADDITION - EPITAPH - END ===
 
     // Visual battle log
     const summaryEl = document.getElementById('battle-summary');

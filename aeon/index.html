@@ -8,6 +8,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
+  <!-- === AEON ADDITION - FEATURE STYLES - START === -->
+  <link rel="stylesheet" href="css/features.css">
+  <!-- === AEON ADDITION - FEATURE STYLES - END === -->
 </head>
 <body>
   <!-- ============ SETUP SCREEN ============ -->
@@ -361,5 +364,18 @@
   <script src="https://cdn.jsdelivr.net/npm/babylonjs-loaders@6.49.0/babylonjs.loaders.min.js"></script>
   <script src="js/render3d.js"></script>
   <script src="js/main.js"></script>
+  <!-- === AEON ADDITION - FEATURE MODULES - START === -->
+  <!-- Load order: gameConfig first; crisis library before its engine. All
+       modules guard their hooks with typeof checks, so any one failing to
+       load leaves the base simulation fully playable. -->
+  <script src="js/gameConfig.js"></script>
+  <script src="js/crisisEventLibrary.js"></script>
+  <script src="js/crisisEvents.js"></script>
+  <script src="js/aiDoctrines.js"></script>
+  <script src="js/diplomacyMemory.js"></script>
+  <script src="js/convergenceSystem.js"></script>
+  <script src="js/legacySystem.js"></script>
+  <script src="js/mainMenu.js"></script>
+  <!-- === AEON ADDITION - FEATURE MODULES - END === -->
 </body>
 </html>

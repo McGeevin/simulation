@@ -1,0 +1,162 @@
+/* ============================================================
+   AEON :: FEATURE STYLES
+   Main menu, crisis modal, convergence HUD/phases, diplomacy
+   panel, world history, ironman. Reuses existing palette vars
+   (with safe fallbacks) so it matches the base UI.
+   ============================================================ */
+
+:root {
+  --feat-ink: #d8dde8;
+  --feat-gold: #e8c66a;
+  --feat-line: rgba(255, 255, 255, .14);
+  --feat-card: #12151f;
+  --feat-card2: #1a1f2c;
+}
+
+/* ---------- Main menu ---------- */
+.aeon-menu {
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at 50% 30%, #1a2030 0%, #0a0c12 70%);
+}
+.menu-inner { text-align: center; width: min(540px, 92vw); }
+.menu-title {
+  font-family: 'Cinzel', serif; font-weight: 900;
+  font-size: clamp(56px, 12vw, 120px); letter-spacing: .12em;
+  margin: 0; color: #f3ead2;
+  text-shadow: 0 0 30px rgba(232, 198, 106, .35), 0 4px 18px rgba(0, 0, 0, .6);
+}
+.menu-tag { font-family: var(--font-ui, sans-serif); color: #9aa3b4; margin: 6px 0 34px; letter-spacing: .04em; }
+.menu-buttons { display: flex; flex-direction: column; gap: 12px; }
+.menu-btn {
+  font-family: 'Cinzel', serif; font-size: 19px; letter-spacing: .08em;
+  padding: 15px; cursor: pointer; color: #e8edf6;
+  background: linear-gradient(180deg, #1d2433, #141925);
+  border: 1px solid var(--feat-line); border-radius: 10px;
+  transition: transform .12s, border-color .12s, background .12s;
+}
+.menu-btn:hover:not(:disabled) { transform: translateY(-2px); border-color: var(--feat-gold); background: linear-gradient(180deg, #25304a, #181f30); }
+.menu-btn:disabled, .menu-btn.disabled { opacity: .42; cursor: not-allowed; }
+.menu-btn small { display: block; font-family: var(--font-ui, sans-serif); font-size: 11px; letter-spacing: .03em; color: #8089a0; margin-top: 3px; }
+
+.menu-panel { margin-top: 8px; background: var(--feat-card); border: 1px solid var(--feat-line); border-radius: 12px; padding: 22px; text-align: left; }
+.menu-panel h2 { font-family: 'Cinzel', serif; margin: 0 0 16px; color: var(--feat-gold); letter-spacing: .06em; text-align: center; }
+.submenu-btn {
+  display: block; width: 100%; text-align: left; margin-bottom: 10px; padding: 13px 16px;
+  font-family: 'Cinzel', serif; font-size: 16px; color: #e8edf6; cursor: pointer;
+  background: var(--feat-card2); border: 1px solid var(--feat-line); border-radius: 8px;
+  transition: border-color .12s, transform .12s;
+}
+.submenu-btn:hover:not(.disabled) { border-color: var(--feat-gold); transform: translateX(3px); }
+.submenu-btn small { display: block; font-family: var(--font-ui, sans-serif); font-size: 11px; color: #8089a0; margin-top: 3px; letter-spacing: .03em; }
+.submenu-btn.disabled { opacity: .4; cursor: not-allowed; }
+.menu-back { margin-top: 6px; background: none; border: 1px solid var(--feat-line); border-radius: 7px; color: #aab2c4; padding: 8px 14px; cursor: pointer; font-family: var(--font-ui, sans-serif); }
+.menu-back:hover { color: #fff; }
+
+.opt-grp { display: flex; flex-direction: column; gap: 10px; padding: 12px 0; border-bottom: 1px solid rgba(255, 255, 255, .07); }
+.opt-toggle { display: flex; align-items: center; justify-content: space-between; font-family: var(--font-ui, sans-serif); color: var(--feat-ink); font-size: 15px; }
+.opt-toggle input { width: 18px; height: 18px; accent-color: var(--feat-gold); }
+.opt-sub { display: flex; align-items: center; justify-content: space-between; font-family: var(--font-ui, sans-serif); color: #aeb6c6; font-size: 13px; gap: 12px; }
+.opt-sub small { color: #767f95; }
+.opt-sub select, .opt-grp select { background: #0d1018; color: #e8edf6; border: 1px solid var(--feat-line); border-radius: 6px; padding: 6px 10px; font-family: var(--font-ui, sans-serif); }
+
+/* ---------- Crisis / Convergence modal ---------- */
+.crisis-overlay {
+  position: fixed; inset: 0; z-index: 40; display: none;
+  align-items: center; justify-content: center;
+  background: rgba(5, 7, 12, .82); backdrop-filter: blur(3px);
+  animation: crisisFade .3s ease;
+}
+.crisis-overlay.show { display: flex; }
+@keyframes crisisFade { from { opacity: 0; } to { opacity: 1; } }
+.crisis-card {
+  width: min(620px, 92vw); background: linear-gradient(180deg, #161b27, #0f131c);
+  border: 1px solid var(--feat-line); border-radius: 14px; padding: 30px 34px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .7); animation: crisisRise .35s ease;
+}
+@keyframes crisisRise { from { transform: translateY(18px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+.crisis-year { font-family: 'Share Tech Mono', monospace; color: #7f8aa3; letter-spacing: .22em; font-size: 13px; text-align: center; }
+.crisis-title { font-family: 'Cinzel', serif; font-size: 30px; color: #f0e6cf; text-align: center; margin: 6px 0 16px; text-shadow: 0 2px 16px rgba(0, 0, 0, .5); }
+.crisis-flavor { font-family: var(--font-ui, sans-serif); color: #c2cad8; line-height: 1.62; font-size: 15px; margin: 0 0 22px; white-space: pre-line; }
+.crisis-choices { display: flex; flex-direction: column; gap: 11px; }
+.crisis-choice {
+  text-align: left; padding: 13px 17px; cursor: pointer; color: #e9eef7;
+  background: var(--feat-card2); border: 1px solid var(--feat-line); border-radius: 9px;
+  transition: border-color .12s, transform .1s, background .12s;
+}
+.crisis-choice:hover { border-color: var(--feat-gold); transform: translateX(4px); background: #222a3d; }
+.cc-label { display: block; font-family: 'Cinzel', serif; font-size: 16px; }
+.cc-hint { display: block; font-family: var(--font-ui, sans-serif); font-size: 12.5px; color: #93b3c9; margin-top: 3px; }
+
+/* Convergence flavours of the modal */
+.crisis-card.convergence-announce { border-color: rgba(232, 198, 106, .5); box-shadow: 0 0 60px rgba(232, 198, 106, .22), 0 24px 80px rgba(0, 0, 0, .7); }
+.crisis-card.convergence-announce .crisis-title { color: var(--feat-gold); letter-spacing: .14em; }
+.crisis-card.convergence-final { border-color: rgba(224, 86, 86, .5); box-shadow: 0 0 60px rgba(224, 86, 86, .2), 0 24px 80px rgba(0, 0, 0, .7); }
+.crisis-card.phase-3.losing { border-color: rgba(224, 86, 86, .8); }
+.crisis-card.phase-3.winning { border-color: rgba(120, 210, 140, .6); }
+
+/* ---------- Convergence HUD (countdown + tension meter) ---------- */
+.convergence-hud {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+  z-index: 7; width: 230px; padding: 8px 12px; text-align: center;
+  background: rgba(10, 12, 18, .82); border: 1px solid rgba(232, 198, 106, .35);
+  border-radius: 9px; pointer-events: none; font-family: var(--font-ui, sans-serif);
+}
+.cv-count { font-family: 'Share Tech Mono', monospace; color: var(--feat-gold); font-size: 12px; letter-spacing: .14em; }
+.cv-meter { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin: 6px 0 3px; background: #0a0c12; }
+.cv-mil { background: linear-gradient(90deg, #c0432f, #e0683f); }
+.cv-civ { background: linear-gradient(90deg, #3f8ad0, #56c0a0); }
+.cv-meter-labels { display: flex; justify-content: space-between; font-size: 9.5px; color: #8089a0; letter-spacing: .05em; }
+
+/* ---------- Diplomacy panel ---------- */
+.diplo-panel {
+  position: absolute; top: 12px; right: 12px; z-index: 7; width: 250px;
+  display: none; background: rgba(10, 12, 18, .9); border: 1px solid var(--feat-line);
+  border-radius: 10px; padding: 12px 14px; font-family: var(--font-ui, sans-serif);
+  max-height: 70%; overflow-y: auto;
+}
+.diplo-panel.show { display: block; }
+.diplo-panel h3 { font-family: 'Cinzel', serif; margin: 0 0 10px; color: var(--feat-gold); font-size: 16px; letter-spacing: .05em; }
+.diplo-empty { color: #8089a0; font-size: 13px; }
+.diplo-row { padding: 8px 0; border-bottom: 1px solid rgba(255, 255, 255, .07); }
+.diplo-name { font-weight: 700; font-size: 14px; }
+.diplo-stance { font-size: 11.5px; color: #9aa3b4; margin: 1px 0 5px; }
+.diplo-bar { height: 6px; border-radius: 3px; background: #2a1518; overflow: hidden; }
+.diplo-bar span { display: block; height: 100%; background: linear-gradient(90deg, #c0432f, #d8b24a 50%, #56c0a0); }
+.diplo-detail { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.diplo-tag { font-size: 10px; padding: 2px 6px; border-radius: 4px; letter-spacing: .03em; }
+.diplo-tag.ally { background: rgba(86, 192, 160, .18); color: #7fe0c0; }
+.diplo-tag.trade { background: rgba(232, 198, 106, .16); color: var(--feat-gold); }
+.diplo-tag.grv { background: rgba(224, 86, 86, .18); color: #ef9a9a; }
+.diplo-tag.debt { background: rgba(63, 138, 208, .18); color: #9ec9ef; }
+
+/* ---------- Ironman ---------- */
+.ironman-indicator { font-family: 'Cinzel', serif; color: #d8b24a; letter-spacing: .12em; font-size: 12px; margin-top: 4px; opacity: .9; }
+
+/* ---------- World History ---------- */
+.aeon-history { background: radial-gradient(ellipse at 50% 0%, #161c2a 0%, #0a0c12 70%); overflow-y: auto; }
+.history-inner { width: min(760px, 94vw); margin: 0 auto; padding: 36px 0 60px; }
+.history-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
+.history-head h1 { font-family: 'Cinzel', serif; color: #f0e6cf; letter-spacing: .08em; margin: 0; }
+.wh-empty { color: #8089a0; text-align: center; padding: 40px; font-family: var(--font-ui, sans-serif); }
+.wh-entry { background: var(--feat-card); border: 1px solid var(--feat-line); border-left: 4px solid #5a6378; border-radius: 10px; padding: 16px 18px; margin-bottom: 14px; font-family: var(--font-ui, sans-serif); }
+.wh-entry.victory { border-left-color: #56c0a0; }
+.wh-entry.defeat { border-left-color: #e05656; }
+.wh-head { display: flex; justify-content: space-between; align-items: center; }
+.wh-num { font-family: 'Share Tech Mono', monospace; color: #8089a0; letter-spacing: .12em; font-size: 12px; }
+.wh-outcome { font-family: 'Cinzel', serif; font-size: 13px; letter-spacing: .08em; }
+.wh-outcome.victory { color: #7fe0c0; }
+.wh-outcome.defeat { color: #ef9a9a; }
+.wh-title { color: #e8edf6; font-size: 15px; margin: 6px 0; }
+.wh-epitaph { color: #c2b58a; font-style: italic; font-size: 14px; margin: 6px 0; }
+.wh-rivals { font-size: 12.5px; color: #9aa3b4; margin: 6px 0; }
+.wh-fate { font-size: 10px; padding: 1px 5px; border-radius: 4px; background: rgba(255, 255, 255, .08); }
+.wh-fate.defeated { color: #ef9a9a; } .wh-fate.allied { color: #7fe0c0; } .wh-fate.conqueror { color: #d8b24a; }
+.wh-choices summary { cursor: pointer; color: #93b3c9; font-size: 12.5px; margin-top: 6px; }
+.wh-choices ul { margin: 8px 0 0; padding-left: 16px; color: #aeb6c6; font-size: 12.5px; line-height: 1.7; }
+.wh-y { font-family: 'Share Tech Mono', monospace; color: #767f95; margin-right: 4px; }
+
+/* Mobile niceties */
+body.mobile .crisis-card { padding: 22px 20px; }
+body.mobile .crisis-title { font-size: 24px; }
+body.mobile .diplo-panel { width: 70vw; }
+body.mobile .convergence-hud { width: 200px; }
