@@ -52,13 +52,26 @@ class Renderer3D {
     this._roadAge    = 4;  // Renaissance — paved highways link the towns
     this._vehicleAge = 5;  // Industrial  — wheeled traffic on the roads
     this._cityAge    = 6;  // Modern      — towns rise into tall cities
-    this._roadNode   = null;   // single merged mesh for ALL roads (1 draw call)
-    this._roadSig    = '';     // signature → only rebuild when the network changes
-    this._roadSegments = [];   // [{ax,az,bx,bz,traffic}] world-space, for vehicles
+    this._roadNodes  = {};     // side → merged mesh (one draw call per civ,
+                                // rebuilt independently so one civ founding a
+                                // town never forces every other civ's roads
+                                // to be torn down and re-merged too)
+    this._roadSigs   = {};     // side → signature, only rebuild on change
+    this._roadSegByCiv = {};   // side → [{ax,az,bx,bz,traffic,color}]
+    this._roadSegments = [];   // flattened, for vehicle routing
     this._vehicleTemplate  = null;
     this._vehicleInstances = [];
     this._vehicles   = [];     // logical { seg, t, dir, speed, color }
     this._vehicleBudget = this._isMobile ? 6 : 18;
+
+    // Heavy-update cadence, in frames. A lost-and-restored WebGL context
+    // (see _degradeForStability) backs these off further so a struggling
+    // GPU isn't immediately handed the same rebuild load again.
+    this._territoryEvery    = 3;
+    this._settleEvery       = 10;
+    this._roadEvery         = 20;
+    this._citizenBudget     = 60;
+    this._contextLossCount  = 0;
 
     // ── Camera view modes (angled god-view ⇄ top-down aerial) ───
     this._viewMode  = 'angled';
@@ -102,6 +115,10 @@ class Renderer3D {
     });
     engine.onContextRestoredObservable.add(() => {
       console.warn('AEON 3D: WebGL context restored.');
+      // A loss is proof this GPU is over budget *right now* — ease off
+      // before handing it the same load back, or "restored" just becomes
+      // the first half of another loss a few seconds later.
+      this._degradeForStability();
       if (this._scene) this._updateTerritoryTexture();
     });
 
@@ -172,6 +189,31 @@ class Renderer3D {
     // Preload the animated characters during the sim so they're ready by the
     // time the final battle starts. Fire-and-forget; boxes are used until then.
     this._loadBattleCharacters();
+  }
+
+  // Called every time the WebGL context comes back after being lost. Cuts
+  // the scene's ongoing GPU/CPU load in steps so a marginal device settles
+  // into something it can sustain instead of looping lost→restored→lost.
+  // Cheap to call repeatedly: every step just clamps a budget or a cadence.
+  _degradeForStability() {
+    this._contextLossCount++;
+    this._vehicleBudget  = Math.min(this._vehicleBudget, 4);
+    this._charBudget     = Math.min(this._charBudget, 10);
+    this._citizenBudget  = Math.min(this._citizenBudget, 24);
+    this._territoryEvery = Math.max(this._territoryEvery, 6);
+    this._settleEvery    = Math.max(this._settleEvery, 20);
+    this._roadEvery      = Math.max(this._roadEvery, 45);
+    // The shadow pass (1024² blurred map, re-rendered every frame) is one
+    // of the most expensive ongoing costs in the scene; every call site
+    // already guards with `if (this._shadow)`, so dropping it is safe.
+    if (this._shadow) { this._shadow.dispose(); this._shadow = null; }
+    if (this._contextLossCount >= 2) {
+      // Still losing it after easing off once — go further rather than
+      // risk a third loss; a sparser scene beats a white screen.
+      this._vehicleBudget = 0;
+      this._charBudget    = Math.min(this._charBudget, 6);
+      this._citizenBudget = Math.min(this._citizenBudget, 10);
+    }
   }
 
   // ──────────────────────────────────────────────────────────
@@ -280,11 +322,13 @@ class Renderer3D {
     const B    = BABYLON;
     const scene = this._scene;
     const mw = this.map.width, mh = this.map.height;
-    // Higher-resolution bake on desktop so biome borders read as soft
-    // gradients rather than hard pixel blocks. (One-time CPU bake; the
-    // GPU only ever sees a single uploaded texture, so this is cheap.)
-    const TW = this._isMobile ? 256 : 512;
-    const TH = this._isMobile ? 128 : 256;
+    // Slightly higher-resolution bake on desktop so biome borders read as
+    // soft gradients rather than hard pixel blocks — though the bilinear
+    // resample + noise below (not raw resolution) is what actually removes
+    // the blockiness, so this bump is kept modest to limit VRAM footprint.
+    // (One-time CPU bake; the GPU only ever sees a single uploaded texture.)
+    const TW = this._isMobile ? 256 : 384;
+    const TH = this._isMobile ? 128 : 192;
     this._terrainW = TW; this._terrainH = TH;
 
     // ── Base biome texture (baked once, smoothly) ────────────
@@ -350,9 +394,11 @@ class Renderer3D {
     this._terrTex = terrTex;
 
     // ── Ground mesh, subdivided + displaced by tile elevation ─
-    // More subdivisions on desktop → smoother hill silhouettes (less faceting).
-    const subX = Math.min(mw, this._isMobile ? 72 : 112);
-    const subY = Math.min(mh, this._isMobile ? 36 : 64);
+    // A modest subdivision bump on desktop → smoother hill silhouettes
+    // (less faceting), kept small because this is uncapped (and therefore
+    // most expensive) on the larger map sizes.
+    const subX = Math.min(mw, this._isMobile ? 72 : 90);
+    const subY = Math.min(mh, this._isMobile ? 36 : 48);
     const ground = B.MeshBuilder.CreateGround('ground',
       { width: 44, height: 18, subdivisionsX: subX, subdivisionsY: subY, updatable: true }, scene);
     const matGnd = new B.StandardMaterial('matGnd', scene);
@@ -751,34 +797,40 @@ class Renderer3D {
     return segs;
   }
 
-  // Rebuild the road network only when it actually changes (a town founded,
-  // or a civ crossing the traffic age) — cheap to call every diff tick.
+  // Rebuild each civ's road network independently, only when that civ's own
+  // settlements actually change (a town founded, a tech-age crossed). Doing
+  // this per-civ — rather than one signature/mesh for the whole game — means
+  // civ A founding a town never forces civ B's unchanged roads to be torn
+  // down and re-merged too, which matters: this is GPU buffer churn (dispose
+  // + allocate + merge), and the previous all-or-nothing rebuild was a likely
+  // contributor to repeated WebGL context loss on long, busy simulations.
   _updateRoads(civs) {
     if (!civs) return;
-    let sig = '';
-    for (const civ of civs) {
-      if ((civ.techAge | 0) < this._roadAge) continue;
-      sig += civ.side + ':' + civ.techAge + ':';
-      for (const e of (civ._settlements || [])) sig += e.x + ',' + e.y + ';';
-      sig += '|';
-    }
-    if (sig === this._roadSig) return;
-    this._roadSig = sig;
-
-    if (this._roadNode) { this._roadNode.dispose(); this._roadNode = null; }
-    this._roadSegments = [];
-
     const B = BABYLON;
-    const pieces = [];
-    const MAX_PIECES = 700;
+    const MAX_PIECES = 350; // per civ, not per game
+    let anyChanged = false;
 
     for (const civ of civs) {
-      if ((civ.techAge | 0) < this._roadAge) continue;
+      const has = (civ.techAge | 0) >= this._roadAge;
+      let sig = '';
+      if (has) {
+        sig = civ.techAge + ':';
+        for (const e of (civ._settlements || [])) sig += e.x + ',' + e.y + ';';
+      }
+      if (sig === (this._roadSigs[civ.side] || '')) continue; // this civ unchanged → skip entirely
+      this._roadSigs[civ.side] = sig;
+      anyChanged = true;
+
+      if (this._roadNodes[civ.side]) { this._roadNodes[civ.side].dispose(); this._roadNodes[civ.side] = null; }
+      this._roadSegByCiv[civ.side] = [];
+      if (!has) continue;
+
       const traffic = (civ.techAge | 0) >= this._vehicleAge;
+      const pieces = [];
       for (const [a, b] of this._civRoadSegments(civ)) {
         const ax = this._tcx(a.x), az = this._tcz(a.y);
         const bx = this._tcx(b.x), bz = this._tcz(b.y);
-        this._roadSegments.push({ ax, az, bx, bz, traffic, color: civ.color });
+        this._roadSegByCiv[civ.side].push({ ax, az, bx, bz, traffic, color: civ.color });
         // Subdivide so the ribbon hugs the terrain over hills.
         const dx = bx - ax, dz = bz - az;
         const len = Math.hypot(dx, dz);
@@ -795,15 +847,20 @@ class Renderer3D {
         }
         if (pieces.length >= MAX_PIECES) break;
       }
+
+      if (!pieces.length) continue;
+      const merged = B.Mesh.MergeMeshes(pieces, true, true, undefined, false, false);
+      if (merged) {
+        merged.material      = this._sharedMat('road', '#34363e');
+        merged.isPickable    = false;
+        merged.receiveShadows = true;
+        this._roadNodes[civ.side] = merged;
+      }
     }
 
-    if (!pieces.length) return;
-    const merged = B.Mesh.MergeMeshes(pieces, true, true, undefined, false, false);
-    if (merged) {
-      merged.material   = this._sharedMat('road', '#34363e');
-      merged.isPickable = false;
-      merged.receiveShadows = true;
-      this._roadNode = merged;
+    if (anyChanged) {
+      this._roadSegments = [];
+      for (const side in this._roadSegByCiv) this._roadSegments.push(...this._roadSegByCiv[side]);
     }
   }
 
@@ -911,7 +968,7 @@ class Renderer3D {
   }
 
   _syncCitizens() {
-    const cits = this._interleaveBySide(this.citizens, c => c.side).slice(0, 60);
+    const cits = this._interleaveBySide(this.citizens, c => c.side).slice(0, this._citizenBudget);
     const B    = BABYLON;
 
     // Grow instance pool as needed
@@ -1214,8 +1271,9 @@ class Renderer3D {
     const fast = typeof Game !== 'undefined' && Game.speed >= 100;
 
     if (!fast) {
-      if (this._frameCount % 3  === 0) this._updateTerritoryTexture();
-      if (this._frameCount % 10 === 0) { this._diffSettlements(); this._updateRoads(civs); }
+      if (this._frameCount % this._territoryEvery === 0) this._updateTerritoryTexture();
+      if (this._frameCount % this._settleEvery === 0) this._diffSettlements();
+      if (this._frameCount % this._roadEvery === 0) this._updateRoads(civs);
 
       if (mode === 'sim') {
         const settlements = this._collectSettlements(civs);
