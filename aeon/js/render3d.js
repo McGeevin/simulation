@@ -36,12 +36,15 @@ class Renderer3D {
     this._unitInstances = [];
 
     // Animated Mixamo characters (loaded async; battle uses them when ready)
+    this._isMobile        = !!(document.body && document.body.classList.contains('mobile'));
     this._charReady      = false;
     this._charContainers = {};   // key → AssetContainer
     this._charPools      = {};   // key → [ { holder, ag, mats, inUse } ]
     this._charScale      = 0.28; // ~1.81m model → ~0.5 world units tall (tweakable)
-    // Skinned characters are GPU-heavy; show fewer on phones.
-    this._charBudget     = (document.body && document.body.classList.contains('mobile')) ? 26 : 60;
+    // Skinned characters are GPU-heavy (own skeleton + draw call each); keep
+    // the simultaneous count modest — units beyond this budget still render
+    // as cheap instanced boxes, so battles never look sparse or GPU-starved.
+    this._charBudget     = this._isMobile ? 16 : 40;
 
     // Particle pool
     this._psPool = [];
@@ -69,9 +72,21 @@ class Renderer3D {
     const engine = new B.Engine(this.canvas, true, {
       preserveDrawingBuffer: false,
       stencil: false,
-      antialias: true,
+      antialias: !this._isMobile,
     });
     this._engine = engine;
+
+    // WebGL contexts can be lost under GPU memory pressure (common on phones
+    // with a heavy scene). Babylon retries the lost context automatically;
+    // we just log so a recurring loss is visible instead of a silent
+    // white screen, and make sure our own render loop keeps running.
+    engine.onContextLostObservable.add(() => {
+      console.warn('AEON 3D: WebGL context lost — attempting automatic recovery.');
+    });
+    engine.onContextRestoredObservable.add(() => {
+      console.warn('AEON 3D: WebGL context restored.');
+      if (this._scene) this._updateTerritoryTexture();
+    });
 
     const scene = new B.Scene(engine);
     scene.clearColor = new B.Color4(0.04, 0.05, 0.08, 1);
@@ -143,7 +158,6 @@ class Renderer3D {
     if (!B.SceneLoader) return; // loaders plugin missing → stay on boxes
     const files = { walk: 'walk.glb', arrow: 'arrow.glb', gunplay: 'gunplay.glb', flying: 'flying.glb', squat: 'squat.glb' };
     const keys = Object.keys(files);
-    let done = 0;
     for (const key of keys) {
       B.SceneLoader.LoadAssetContainerAsync('assets/characters/', files[key], this._scene)
         .then(container => {
@@ -152,10 +166,14 @@ class Renderer3D {
           for (const ag of container.animationGroups) ag.stop();
           this._charContainers[key] = container;
           this._charPools[key] = [];
-          if (++done === keys.length) this._charReady = true;
+          // Flip on as soon as any role is usable — a single flaky asset
+          // (e.g. a dropped request on mobile) should only knock out that
+          // role's units (they fall back to boxes via the overflow path),
+          // not the whole animated-character system.
+          this._charReady = true;
         })
         .catch(err => {
-          console.warn('Character load failed (' + key + '), using box units:', err);
+          console.warn('Character load failed (' + key + '), using box units for that role:', err);
         });
     }
   }
@@ -649,8 +667,32 @@ class Renderer3D {
     this._citizenTemplate = tmpl;
   }
 
+  // Interleave a list of { side, ... } items round-robin by side, so a
+  // shared render cap (citizens, animated battle characters, …) can never
+  // be monopolised by whichever side happens to be first in the array —
+  // that ordering bug is what made player 2 intermittently fail to render.
+  _interleaveBySide(items, sideOf) {
+    const bySide = {};
+    const order = [];
+    for (const it of items) {
+      const s = sideOf(it);
+      if (!bySide[s]) { bySide[s] = []; order.push(s); }
+      bySide[s].push(it);
+    }
+    const out = [];
+    for (let i = 0; ; i++) {
+      let added = false;
+      for (const s of order) {
+        const arr = bySide[s];
+        if (i < arr.length) { out.push(arr[i]); added = true; }
+      }
+      if (!added) break;
+    }
+    return out;
+  }
+
   _syncCitizens() {
-    const cits = this.citizens.slice(0, 60);
+    const cits = this._interleaveBySide(this.citizens, c => c.side).slice(0, 60);
     const B    = BABYLON;
 
     // Grow instance pool as needed
@@ -759,28 +801,38 @@ class Renderer3D {
 
   _syncBattleUnits() {
     if (this._charReady) this._syncBattleUnitsChars();
-    else                 this._syncBattleUnitsBoxes();
+    else                 this._syncBattleUnitsBoxes(this.battleUnits);
   }
 
-  // Animated Mixamo soldiers driven by the (tile-space) battle units.
+  // Animated Mixamo soldiers driven by the (tile-space) battle units. Only
+  // up to _charBudget are ever instantiated at once (GPU cost); the rest of
+  // the army still appears as cheap instanced boxes via the overflow array
+  // below, so no side ever silently vanishes and battles stay dense.
   _syncBattleUnitsChars() {
     const B = BABYLON;
-    // Hide the box fallback the first time characters take over.
-    for (const inst of this._unitInstances) inst.isVisible = false;
     // Free every pooled character; we re-bind the visible ones below.
     for (const key in this._charPools) for (const e of this._charPools[key]) e.inUse = false;
+
+    // Side A is always first in this.battleUnits (it's built civ-by-civ in
+    // BattleVisualizer.start()), so a straight in-order walk could let a
+    // large army on one side exhaust the whole character budget before the
+    // loop ever reached another side's units — that's the bug behind
+    // "player 2 doesn't show". Interleaving evenly fixes it.
+    const alive = this.battleUnits.filter(u => !u.dead);
+    const queue = this._interleaveBySide(alive, u => u.side);
 
     let budget = this._charBudget;
     let newThisFrame = 0;
     const NEW_CAP = 6;
-    for (const u of this.battleUnits) {
-      if (u.dead || budget <= 0) continue;
+    const overflow = [];
+    for (const u of queue) {
+      if (budget <= 0) { overflow.push(u); continue; }
       const key = this._charKeyForUnit(u);
       const pool = this._charPools[key];
-      if (!pool) continue;
+      if (!pool) { overflow.push(u); continue; }
       const before = pool.length;
       const e = this._acquireChar(key, newThisFrame < NEW_CAP);
-      if (!e) continue;
+      if (!e) { overflow.push(u); continue; }
       if (pool.length > before) newThisFrame++;
       budget--;
 
@@ -810,12 +862,16 @@ class Renderer3D {
         if (!e.inUse) e.holder.setEnabled(false);
       }
     }
+
+    // Everyone who didn't get an animated character this frame still shows
+    // up as a coloured box rather than disappearing.
+    this._syncBattleUnitsBoxes(overflow);
   }
 
-  // Cheap instanced boxes — fallback before characters load (or if they fail).
-  _syncBattleUnitsBoxes() {
-    const units = this.battleUnits;
-    const B     = BABYLON;
+  // Cheap instanced boxes — fallback before characters load (or if they
+  // fail), and also used for the overflow beyond the character budget.
+  _syncBattleUnitsBoxes(units) {
+    const B = BABYLON;
 
     while (this._unitInstances.length < units.length) {
       const idx  = this._unitInstances.length;

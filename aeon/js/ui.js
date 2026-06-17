@@ -938,57 +938,60 @@ function initMultiplayer() {
   // No challenging from inside an existing match.
   if (challengeBtn) challengeBtn.style.display = 'none';
 
-  // Randomize button hidden in multiplayer — choices are determined by the match config.
+  // Randomize buttons hidden in multiplayer — choices are determined by the match config.
   const rndBtn = document.getElementById('randomize-btn');
   if (rndBtn) rndBtn.style.display = 'none';
+  document.querySelectorAll('.side-randomize-btn').forEach(b => { b.style.display = 'none'; });
 }
 
 // ============================================================
 // RANDOMIZE TEAMS
-// Picks a functionally valid random build for each side.
+// Picks a functionally valid random build for one side, or all of them.
 // ============================================================
+function randomizeSide(side) {
+  const panel = document.querySelector(`.civ-config[data-side="${side}"]`);
+  if (!panel) return;
+
+  const raceKeys = Object.keys(RACES);
+  const race = raceKeys[Math.floor(Math.random() * raceKeys.length)];
+
+  const validFocuses = Object.keys(FOCUSES).filter(fk => {
+    const f = FOCUSES[fk];
+    return !f.requires || f.requires.includes(race);
+  });
+  const focus = validFocuses[Math.floor(Math.random() * validFocuses.length)];
+
+  const validGovs = Object.keys(GOVERNMENTS).filter(gk => {
+    const g = GOVERNMENTS[gk];
+    return !g.requires || !g.requires.race || g.requires.race.includes(race);
+  });
+  const gov = validGovs[Math.floor(Math.random() * validGovs.length)];
+
+  const validWeapons = Object.keys(WEAPONS).filter(wk => {
+    const w = WEAPONS[wk];
+    if (!w.requires) return true;
+    if (w.requires.race && !w.requires.race.includes(race)) return false;
+    if (w.requires.focus && !w.requires.focus.includes(focus)) return false;
+    if (w.requires.focusOr && !w.requires.focusOr.includes(focus)) return false;
+    return true;
+  });
+  const weapon = validWeapons[Math.floor(Math.random() * validWeapons.length)];
+
+  const biomeKeys = Object.keys(BIOMES);
+  const biome = biomeKeys[Math.floor(Math.random() * biomeKeys.length)];
+
+  const setF = (f, v) => { const el = panel.querySelector(`[data-field="${f}"]`); if (el) el.value = v; };
+  setF('race', race);
+  setF('focus', focus);
+  setF('government', gov);
+  setF('weapon', weapon);
+  setF('biome', biome);
+  updateHints(panel);
+}
+
 function randomizeTeams() {
   const sides = playerCount() === 3 ? ['A', 'B', 'C'] : ['A', 'B'];
-  for (const side of sides) {
-    const panel = document.querySelector(`.civ-config[data-side="${side}"]`);
-    if (!panel) continue;
-
-    const raceKeys = Object.keys(RACES);
-    const race = raceKeys[Math.floor(Math.random() * raceKeys.length)];
-
-    const validFocuses = Object.keys(FOCUSES).filter(fk => {
-      const f = FOCUSES[fk];
-      return !f.requires || f.requires.includes(race);
-    });
-    const focus = validFocuses[Math.floor(Math.random() * validFocuses.length)];
-
-    const validGovs = Object.keys(GOVERNMENTS).filter(gk => {
-      const g = GOVERNMENTS[gk];
-      return !g.requires || !g.requires.race || g.requires.race.includes(race);
-    });
-    const gov = validGovs[Math.floor(Math.random() * validGovs.length)];
-
-    const validWeapons = Object.keys(WEAPONS).filter(wk => {
-      const w = WEAPONS[wk];
-      if (!w.requires) return true;
-      if (w.requires.race && !w.requires.race.includes(race)) return false;
-      if (w.requires.focus && !w.requires.focus.includes(focus)) return false;
-      if (w.requires.focusOr && !w.requires.focusOr.includes(focus)) return false;
-      return true;
-    });
-    const weapon = validWeapons[Math.floor(Math.random() * validWeapons.length)];
-
-    const biomeKeys = Object.keys(BIOMES);
-    const biome = biomeKeys[Math.floor(Math.random() * biomeKeys.length)];
-
-    const setF = (f, v) => { const el = panel.querySelector(`[data-field="${f}"]`); if (el) el.value = v; };
-    setF('race', race);
-    setF('focus', focus);
-    setF('government', gov);
-    setF('weapon', weapon);
-    setF('biome', biome);
-    updateHints(panel);
-  }
+  for (const side of sides) randomizeSide(side);
 }
 
 // ============================================================

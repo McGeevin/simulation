@@ -111,6 +111,12 @@ function init() {
   });
   const rndBtn = document.getElementById('randomize-btn');
   if (rndBtn) rndBtn.addEventListener('click', randomizeTeams);
+  document.querySelectorAll('.side-randomize-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      randomizeSide(btn.dataset.side);
+    });
+  });
 
   // Sound toggle (reflects persisted mute state).
   const soundBtn = document.getElementById('sound-toggle');

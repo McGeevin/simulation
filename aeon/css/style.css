@@ -136,7 +136,27 @@ body {
   padding-bottom: 10px;
   border-bottom: 1px solid var(--border);
   font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
+
+.side-randomize-btn {
+  font-family: var(--font-ui);
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: 14px;
+  font-weight: 500;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-dim);
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.side-randomize-btn:hover { background: var(--bg-lift); color: var(--text); border-color: var(--text-dim); }
+.civ-config.locked .side-randomize-btn { display: none; }
 
 label {
   display: block;
