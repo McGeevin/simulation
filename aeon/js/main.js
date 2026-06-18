@@ -321,6 +321,7 @@ function aeonInitRun() {
   Game._convergenceMercy = null;
   Game._chronicle = null;
   Game._skipping = false;
+  Game._aeonPrevSpeed = null;
 
   if (typeof LegacySystem !== 'undefined') LegacySystem.init();
   if (typeof AiDoctrines !== 'undefined') { AiDoctrines.init(); AiDoctrines.assign(Game.civs, Game._aeonRng); }
@@ -342,12 +343,24 @@ function aeonInitRun() {
 }
 
 // Called after each simulated year (from simStep and the skip loop). Returns
-// true if a feature opened a modal and the sim must pause until a choice.
+// true if a feature opened (or still has open) a modal and the caller should
+// treat the year as paused for the purposes of starting anything new.
 function aeonYearHook(year) {
   if (typeof Diplomacy !== 'undefined' && Diplomacy.active) Diplomacy.tickYear(year);
+  // A modal is already up (crisis or convergence) — don't let the other
+  // system open a second one on top of it; just keep ticking underneath.
+  const overlay = document.getElementById('crisis-overlay');
+  if (overlay && overlay.classList.contains('show')) return true;
   if (typeof ConvergenceSystem !== 'undefined' && ConvergenceSystem.active && ConvergenceSystem.checkYear(year)) return true;
   if (typeof CrisisSystem !== 'undefined' && CrisisSystem.active && CrisisSystem.checkYear(year)) return true;
   return false;
+}
+
+// Force the simulation speed (used to throttle, not stop, real-time play
+// while a crisis/convergence modal is open) and keep the speed buttons in sync.
+function aeonSetSimSpeed(s) {
+  Game.speed = s;
+  document.querySelectorAll('.speed-btn').forEach(b => b.classList.toggle('active', parseInt(b.dataset.speed) === s));
 }
 
 // Resume the sim after a crisis/convergence choice — continuing either the
@@ -355,8 +368,9 @@ function aeonYearHook(year) {
 function aeonResumeSim() {
   const overlay = document.getElementById('crisis-overlay');
   if (overlay) overlay.classList.remove('show');
-  if (Game._skipping) advanceSkip();
-  else Game.running = true;
+  if (Game._skipping) { advanceSkip(); return; }
+  if (Game._aeonPrevSpeed != null) { aeonSetSimSpeed(Game._aeonPrevSpeed); Game._aeonPrevSpeed = null; }
+  Game.running = true;
 }
 // === AEON ADDITION - FEATURE WIRING - END ===
 
@@ -481,7 +495,11 @@ function simStep(dt) {
 
     // === AEON ADDITION - CRISIS / CONVERGENCE PAUSE - START ===
     if (typeof aeonYearHook === 'function' && aeonYearHook(Game.year)) {
-      Game.running = false;          // a modal opened — pause until a choice is made
+      // A modal is open. Slow the world to a crawl rather than freezing it
+      // outright — years keep passing underneath while the player decides.
+      // Restored to whatever speed was active once the choice is made.
+      if (Game._aeonPrevSpeed == null) Game._aeonPrevSpeed = Game.speed;
+      if (typeof aeonSetSimSpeed === 'function') aeonSetSimSpeed(1); else Game.speed = 1;
       updateAllPanels();
       return;
     }
