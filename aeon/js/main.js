@@ -586,6 +586,14 @@ function finishGame() {
   }
   // === AEON ADDITION - LEGACY CHRONICLE - END ===
 
+  // === AEON ADDITION - CAMPAIGN ROUND HOOK - START ===
+  // Let the Imperial Campaign judge the round (win → climb, loss → restart).
+  // It swaps the aftermath's "New Simulation" button for a campaign control.
+  if (typeof CampaignSystem !== 'undefined' && CampaignSystem.isActive && CampaignSystem.isActive()) {
+    try { CampaignSystem.onRoundEnd(outcome); } catch (e) { console.warn('Campaign hook failed:', e); }
+  }
+  // === AEON ADDITION - CAMPAIGN ROUND HOOK - END ===
+
   // Apply final casualties: the victor is bloodied, the conquered wiped out.
   if (outcome.threeWay) {
     for (const e of outcome.entries) {

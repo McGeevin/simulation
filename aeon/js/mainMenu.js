@@ -14,6 +14,8 @@ const AeonMenu = {
     loadGameConfig();
     if (typeof LegacySystem !== 'undefined') LegacySystem.init();
 
+    if (typeof CampaignSystem !== 'undefined') CampaignSystem.init();
+
     this._injectPlayAs();
     this._injectDiplomacyPanel();
     this._buildMenu();
@@ -53,8 +55,8 @@ const AeonMenu = {
             <p class="opt-help">No objective and no permadeath — build, clash, and explore at your own pace. Every Option you've set (Crisis Events, the Convergence, AI Doctrine, Diplomacy Depth) applies in full, and you can back out to Setup at any time.</p>
           </div>
           <div class="opt-grp">
-            <button class="submenu-btn disabled" disabled>Campaign<small>Coming Soon</small></button>
-            <p class="opt-help">A hand-authored chain of linked scenarios with its own arc and stakes. Not yet built — Sandbox and Ironman Run already cover the full simulation in the meantime.</p>
+            <button class="submenu-btn" id="menu-campaign-btn" data-mode="campaign">Campaign<small>Ascendant Conqueror — climb 10 escalating foes to the world throne.</small></button>
+            <p class="opt-help">An imperialist gauntlet. Pick one civilization and keep it through ten rounds of progressively stronger rivals — each a real, named power drawn from an exhaustive balance sweep, working down from the single strongest build ever measured. Lose a round and the ascent restarts. Choose your Age (1,000–10,000 years); the foes change with it.</p>
           </div>
           <div class="opt-grp">
             <button class="submenu-btn" data-mode="ironman">Ironman Run<small>One life. No reloads. A Chronicle at the end.</small></button>
@@ -130,6 +132,7 @@ const AeonMenu = {
       if (mode === 'sandbox') { this._startSandbox(); return; }
       if (mode === 'ironman') { this._startIronman(); return; }
       if (mode === 'legacy') { this._openLegacyBriefing(); return; }
+      if (mode === 'campaign') { this._startCampaign(); return; }
       if (act === 'newgame') this._showPanel('menu-newgame');
       else if (act === 'options') { this._syncOptionsUI(); this._showPanel('menu-options'); }
       else if (act === 'history') this._openHistory();
@@ -188,6 +191,13 @@ const AeonMenu = {
     if (menu) menu.classList.remove('active');
     showScreen('setup-screen');
     this._showPanel(null);
+  },
+
+  _startCampaign() {
+    if (typeof CampaignSystem === 'undefined' || !CampaignSystem.available()) return;
+    gameConfig.mode = 'campaign';
+    this._showPanel(null);
+    CampaignSystem.open();
   },
 
   // ── Legacy World: preview what past runs carry forward, then launch ─
