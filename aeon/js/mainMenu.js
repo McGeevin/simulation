@@ -48,10 +48,22 @@ const AeonMenu = {
 
         <div class="menu-panel" id="menu-newgame" hidden>
           <h2>New Game</h2>
-          <button class="submenu-btn" data-mode="sandbox">Sandbox<small>The classic open simulation</small></button>
-          <button class="submenu-btn disabled" disabled>Campaign<small>Coming Soon</small></button>
-          <button class="submenu-btn" data-mode="ironman">Ironman Run<small>One life. No reloads. A Chronicle at the end.</small></button>
-          <button class="submenu-btn disabled" id="menu-legacy-btn" data-mode="legacy" disabled>Legacy World<small>Coming Soon</small></button>
+          <div class="opt-grp">
+            <button class="submenu-btn" data-mode="sandbox">Sandbox<small>The classic open simulation</small></button>
+            <p class="opt-help">No objective and no permadeath — build, clash, and explore at your own pace. Every Option you've set (Crisis Events, the Convergence, AI Doctrine, Diplomacy Depth) applies in full, and you can back out to Setup at any time.</p>
+          </div>
+          <div class="opt-grp">
+            <button class="submenu-btn disabled" disabled>Campaign<small>Coming Soon</small></button>
+            <p class="opt-help">A hand-authored chain of linked scenarios with its own arc and stakes. Not yet built — Sandbox and Ironman Run already cover the full simulation in the meantime.</p>
+          </div>
+          <div class="opt-grp">
+            <button class="submenu-btn" data-mode="ironman">Ironman Run<small>One life. No reloads. A Chronicle at the end.</small></button>
+            <p class="opt-help">The same simulation as Sandbox, but the exits are sealed: no bailing back to Setup mid-run, and a fallen civilization stays fallen. Win or lose, the age is recorded as a Chronicle in your World History.</p>
+          </div>
+          <div class="opt-grp">
+            <button class="submenu-btn disabled" id="menu-legacy-btn" data-mode="legacy" disabled>Legacy World<small>Coming Soon</small></button>
+            <p class="opt-help">Begins a new world shaped by the last one: civilizations you broke return as a humbled Remnant, ruins rise near former capitals, and rivals open warier or friendlier depending on how your past selves treated them. Unlocks once your first run is chronicled.</p>
+          </div>
           <button class="menu-back" data-act="back">‹ Back</button>
         </div>
 
