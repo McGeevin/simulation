@@ -327,12 +327,12 @@ class BattleVisualizer {
     const midY = this.map.height / 2;
 
     // Fire each side's special weapon, staggered as the armies approach.
-    let t = 30;
+    let t = 12;
     for (const civ of this.civs) {
       if (this.phaseTime === t && civ.weaponUnlocked && !this.specialFired[civ.side]) {
         this.fireSpecial(civ); this.specialFired[civ.side] = true;
       }
-      t += 15;
+      t += 8;
     }
 
     // Dust clouds trailing behind advancing troops every few frames.
@@ -361,7 +361,7 @@ class BattleVisualizer {
       }
     }
 
-    if (this.phaseTime > 130 || movingCount < this.units.length * 0.3) {
+    if (this.phaseTime > 55 || movingCount < this.units.length * 0.3) {
       this.phase = 'clash';
       this.phaseTime = 0;
       this.battleLog.push({ year: this.map.endYear || 1000, text: 'The armies clash!' });
@@ -369,14 +369,16 @@ class BattleVisualizer {
   }
 
   // Per-side per-frame attrition rate, derived from the resolved outcome.
+  // Scaled up from the original pacing so the clash reads clearly in a
+  // shortened battle sequence instead of grinding on for many seconds.
   lossRateForSide(side) {
     const o = this.outcome;
     if (o.threeWay) {
       const e = o.entries.find(en => en.civ.side === side);
-      return [0.006, 0.013, 0.020][e ? e.rank : 1] || 0.013;
+      return [0.013, 0.029, 0.044][e ? e.rank : 1] || 0.029;
     }
-    if (side === o.winner.side) return 0.005 + o.winnerCasualtyPct * 0.0002;
-    return 0.012 + o.loserCasualtyPct * 0.0003;
+    if (side === o.winner.side) return 0.011 + o.winnerCasualtyPct * 0.00044;
+    return 0.026 + o.loserCasualtyPct * 0.00066;
   }
 
   stepClash() {
@@ -440,7 +442,7 @@ class BattleVisualizer {
 
     const winnerAlive = (bySide[winnerSide] || []).length;
     const otherAlive = alive.length - winnerAlive;
-    if (otherAlive < this.units.length * 0.12 || this.phaseTime > 260) {
+    if (otherAlive < this.units.length * 0.12 || this.phaseTime > 110) {
       this.phase = 'resolve';
       this.phaseTime = 0;
       this.battleLog.push({ year: this.map.endYear || 1000, text: `${outcome.winner.name} ${outcome.threeWay ? 'stands triumphant' : 'routs the enemy'}!` });
@@ -486,7 +488,7 @@ class BattleVisualizer {
       }
     }
 
-    if (this.phaseTime > 200) {
+    if (this.phaseTime > 70) {
       for (let y = 0; y < this.map.height; y++) {
         for (let x = 0; x < this.map.width; x++) {
           this.map.tiles[y][x].owner = winnerSide;

@@ -554,7 +554,7 @@ function proceedWithBattle() {
     overlay.classList.remove('show');
     Game.battle = new BattleVisualizer(Game.renderer, Game.map, Game.civs, Game.battleOutcome);
     Game.battle.start();
-  }, 900);
+  }, 350);
 }
 // === AEON ADDITION - BATTLE RESOLUTION SPLIT - END ===
 
@@ -649,7 +649,7 @@ function finishGame() {
     if (Game.battle && typeof Game.battle.disposeEngine === 'function') {
       Game.battle.disposeEngine();
     }
-  }, 1500);
+  }, 600);
 }
 
 function finalStatCard(civ) {
