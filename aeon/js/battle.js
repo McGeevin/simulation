@@ -65,10 +65,18 @@ function mobilizationFactor(civ) {
 function battlePowerBreakdown(civ, defender = false, ctx = {}) {
   const role = ctx.role || (defender ? 'defender' : 'invader');
   const factors = [];
+  const soldierStr = civ.raceData.soldierStrength || 1.0;
+  const effectiveArmy = civ.army * soldierStr;
   const ageMult = civ.weaponTechLevel;
-  let power = civ.army * ageMult;
+  // Diminishing returns on raw numbers (exponent 0.7): a force 10× larger is
+  // only ~5× stronger, so racial identity and focus multipliers stay decisive
+  // even when one side is badly outnumbered.  Scale ×800 keeps display values
+  // in the same order of magnitude as the old linear formula.
+  let power = Math.pow(effectiveArmy, 0.7) * ageMult * 800;
   const base = power;
-  const baseDetail = `${formatNum(civ.army)} troops × ${ageMult.toFixed(1)} (${TECH_AGES[civ.techAge].name}-age arms)`;
+  const baseDetail = soldierStr !== 1.0
+    ? `${formatNum(civ.army)} troops × ${soldierStr.toFixed(1)}× warrior strength × ${ageMult.toFixed(1)}× tech`
+    : `${formatNum(civ.army)} troops × ${ageMult.toFixed(1)}× (${TECH_AGES[civ.techAge].name}-age arms)`;
 
   const add = (label, mult, detail) => {
     if (mult === 1 || !isFinite(mult)) return;
@@ -95,15 +103,21 @@ function battlePowerBreakdown(civ, defender = false, ctx = {}) {
   // Government synergy
   if (civ.government === 'theocracy' && civ.focus === 'faith') add('Theocratic zeal', 1.15, 'Theocracy + Faith synergy');
 
-  // Morale & stability (always present)
-  add('Morale', 0.5 + civ.morale / 200, `Morale ${Math.round(civ.morale)} / 100`);
-  add('Stability', 0.7 + civ.stability / 333, `Stability ${Math.round(civ.stability)} / 100`);
+  // Morale & stability — constructs are machines; they don't rout or lose heart.
+  if (civ.raceData.special === 'constructed') {
+    // skip morale and stability factors for mechanical units
+  } else {
+    const effectiveMorale = civ.raceData.special === 'undead' ? Math.max(70, civ.morale) : civ.morale;
+    add('Morale', 0.5 + effectiveMorale / 200, `Morale ${Math.round(effectiveMorale)} / 100${civ.raceData.special === 'undead' ? ' (undead min 70)' : ''}`);
+    add('Stability', 0.7 + civ.stability / 333, `Stability ${Math.round(civ.stability)} / 100`);
+  }
 
-  // Numerical balance vs the enemy (super-linear kicker)
+  // Numerical balance vs the enemy — compare effective armies so giants aren't
+  // simply outnumbered by goblin headcount; the display uses raw civ.army.
   if (ctx.enemyArmy) {
-    const nf = numbersFactor(civ.army, ctx.enemyArmy);
+    const nf = numbersFactor(effectiveArmy, ctx.enemyArmy);
     add(nf >= 1 ? 'Numerical superiority' : 'Outnumbered', nf,
-        `${formatNum(civ.army)} vs ~${formatNum(Math.round(ctx.enemyArmy))} enemy troops`);
+        `${formatNum(civ.army)} vs ~${formatNum(Math.round(ctx.enemyArmy / soldierStr))} enemy troops`);
   }
 
   // Mobilization sustainability
@@ -163,15 +177,20 @@ function resolveBattle(civA, civB, world, rng) {
   else { invader = rng.chance(0.5) ? civA : civB; defender = (invader === civA) ? civB : civA; }
 
   const invBreakdown = battlePowerBreakdown(invader, false,
-    { role: 'invader', enemyArmy: defender.army, enemyBiome: defender.biome });
+    { role: 'invader',
+      enemyArmy: defender.army * (defender.raceData.soldierStrength || 1.0),
+      enemyBiome: defender.biome });
   const defBreakdown = battlePowerBreakdown(defender, true,
-    { role: 'defender', enemyArmy: invader.army });
+    { role: 'defender',
+      enemyArmy: invader.army * (invader.raceData.soldierStrength || 1.0) });
   const invPower = Math.floor(invBreakdown.final);
   const defPower = Math.floor(defBreakdown.final);
 
-  // RNG band ±10% — the fog of war.
-  const invLuck = rng.range(0.90, 1.10);
-  const defLuck = rng.range(0.90, 1.10);
+  // RNG band ±10% — the fog of war. Fae are chaos incarnate: ±25%.
+  const invRange = invader.raceData.special === 'fae' ? [0.75, 1.25] : [0.90, 1.10];
+  const defRange = defender.raceData.special === 'fae' ? [0.75, 1.25] : [0.90, 1.10];
+  const invLuck = rng.range(...invRange);
+  const defLuck = rng.range(...defRange);
   const invRoll = invPower * invLuck;
   const defRoll = defPower * defLuck;
 
@@ -204,10 +223,11 @@ function resolveBattle3(civA, civB, civC, world, rng) {
     // defender treatment — terrain & fortification still differentiate them.
     // Each faces the other two, so "the enemy" is their combined average.
     const others = civs.filter(c => c !== civ);
-    const enemyArmy = others.reduce((s, c) => s + c.army, 0) / Math.max(1, others.length);
+    const enemyArmy = others.reduce((s, c) => s + c.army * (c.raceData.soldierStrength || 1.0), 0) / Math.max(1, others.length);
     const breakdown = battlePowerBreakdown(civ, true, { role: 'ffa', enemyArmy });
     const power = Math.floor(breakdown.final);
-    const luck = rng.range(0.90, 1.10);
+    const luckRange = civ.raceData.special === 'fae' ? [0.75, 1.25] : [0.90, 1.10];
+    const luck = rng.range(...luckRange);
     return { civ, breakdown, power, luck, roll: power * luck, agg: aggressionFor(civ) };
   });
 

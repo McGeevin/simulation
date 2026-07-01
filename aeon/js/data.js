@@ -14,6 +14,7 @@ const RACES = {
     flavor: 'Ambitious and endlessly inventive, humans master no single art yet falter at none. Their strength is the speed at which they copy, adapt, and outpace.',
     mods: { research: 1.10, growth: 1.05, military: 1.0, lifespan: 1.0 },
     biomePref: ['plains','forest','coastal','savanna'],
+    soldierStrength: 1.0,
   },
   orcs: {
     name: 'Orcs',
@@ -21,6 +22,7 @@ const RACES = {
     flavor: 'Strength is the only currency of the orc clans. They breed for war and die young, trading scholarship for raw martial dominance.',
     mods: { research: 0.80, growth: 1.20, military: 1.30, lifespan: 0.85 },
     biomePref: ['plains','mountain','volcanic','savanna'],
+    soldierStrength: 1.5,
   },
   elves: {
     name: 'Elves',
@@ -28,6 +30,7 @@ const RACES = {
     flavor: 'Centuries pass in a single elven lifetime. Patient and arcane, they cultivate magic and knowledge while their numbers grow only grudgingly.',
     mods: { research: 1.15, growth: 0.70, military: 0.95, lifespan: 1.50, magic: 1.40 },
     biomePref: ['forest','coastal','jungle'],
+    soldierStrength: 1.1,
   },
   dwarves: {
     name: 'Dwarves',
@@ -35,6 +38,7 @@ const RACES = {
     flavor: 'Carvers of mountains and forgers of legend. Dwarves turn stone into citadels and ore into unbreakable lines of defense.',
     mods: { research: 1.05, growth: 0.90, military: 1.10, defense: 1.40, metal: 1.50 },
     biomePref: ['mountain','volcanic','highlands'],
+    soldierStrength: 2.5,
   },
   lizardfolk: {
     name: 'Lizardfolk',
@@ -43,6 +47,7 @@ const RACES = {
     mods: { research: 0.95, growth: 1.10, military: 1.05 },
     biomePref: ['desert','swamp','jungle'],
     biomePenalty: { tundra: 0.6, taiga: 0.7 },
+    soldierStrength: 1.2,
   },
   frostborn: {
     name: 'Frostborn',
@@ -51,6 +56,7 @@ const RACES = {
     mods: { research: 0.95, growth: 0.95, military: 1.15, defense: 1.10 },
     biomePref: ['tundra','mountain','taiga'],
     biomePenalty: { desert: 0.5, volcanic: 0.7, savanna: 0.8, badlands: 0.7 },
+    soldierStrength: 1.7,
   },
   avians: {
     name: 'Avians',
@@ -59,14 +65,16 @@ const RACES = {
     mods: { research: 1.05, growth: 0.85, military: 0.95, scouting: 2.0 },
     biomePref: ['mountain','plains','coastal','highlands'],
     popCapMod: 0.75,
+    soldierStrength: 0.9,
   },
   constructs: {
     name: 'Constructs',
-    desc: 'Built, not born. No food needed — but growth costs metal + knowledge.',
-    flavor: 'Tireless automata that neither hunger nor age. Every new unit must be forged, so a construct nation lives and dies by its mines and its minds.',
-    mods: { research: 1.0, growth: 0.0, military: 1.10, defense: 1.20 },
+    desc: 'Built, not born. Forged from metal — each one a war machine.',
+    flavor: 'Tireless automata that neither hunger nor age. Slow to build in their early ages, constructs scale dramatically with technology — by the Iron Age a single unit fights like a squad; by Singularity, like a battalion.',
+    mods: { research: 1.0, growth: 0.0, military: 1.10, defense: 1.20, metal: 1.20 },
     biomePref: ['mountain','desert','volcanic','badlands'],
     special: 'constructed',
+    soldierStrength: 4.5,
   },
   goblins: {
     name: 'Goblins',
@@ -75,6 +83,7 @@ const RACES = {
     mods: { research: 0.90, growth: 1.35, military: 0.90, lifespan: 0.80, gold: 1.15, espionageGen: 1.40 },
     biomePref: ['swamp','jungle','mountain','badlands'],
     popCapMod: 1.30,
+    soldierStrength: 0.65,
   },
   merfolk: {
     name: 'Merfolk',
@@ -83,6 +92,7 @@ const RACES = {
     mods: { research: 1.10, growth: 1.0, military: 1.0, trade: 1.30, magic: 1.10 },
     biomePref: ['coastal','swamp','archipelago'],
     biomePenalty: { desert: 0.5, volcanic: 0.6, badlands: 0.6 },
+    soldierStrength: 0.7,
   },
   infernals: {
     name: 'Infernals',
@@ -91,22 +101,26 @@ const RACES = {
     mods: { research: 0.95, growth: 0.75, military: 1.35, magic: 1.30, lifespan: 1.20, stability: 0.92 },
     biomePref: ['volcanic','desert','badlands'],
     biomePenalty: { tundra: 0.6, taiga: 0.7 },
+    soldierStrength: 3.0,
   },
   fae: {
     name: 'Fae',
     desc: 'Capricious spirits of wild magic. Brilliant yet brittle.',
-    flavor: 'Tricksters woven from raw magic and moonlight. The fae bend reality with ease but shatter in open war, hoarding their few precious numbers.',
+    flavor: 'Tricksters woven from raw magic and moonlight. The fae bend reality with ease but shatter in open war — their battles are decided by wild swings of fortune as much as strength.',
     mods: { research: 1.20, growth: 0.80, military: 0.80, magic: 1.60, lifespan: 1.30, espionageGen: 1.50 },
     biomePref: ['forest','swamp','jungle'],
     popCapMod: 0.80,
+    soldierStrength: 0.6,
+    special: 'fae',
   },
   giants: {
     name: 'Giants',
-    desc: 'Mountain-born colossi. Few, slow, and unstoppable in a fight.',
-    flavor: 'Each giant is a walking siege engine. They breed rarely and tire the land that feeds them, but a single warband can shatter an army.',
+    desc: 'Mountain-born colossi. Few, but each one is an army.',
+    flavor: 'Each giant is a walking siege engine. They breed rarely and tire the land that feeds them — but 10,000 giants will shatter an army of 100,000 lesser soldiers.',
     mods: { research: 0.90, growth: 0.70, military: 1.45, defense: 1.25, lifespan: 1.20 },
     biomePref: ['mountain','tundra','highlands'],
     popCapMod: 0.65,
+    soldierStrength: 6.0,
   },
   undead: {
     name: 'Undead',
@@ -115,6 +129,8 @@ const RACES = {
     mods: { research: 0.90, growth: 0.85, military: 1.20, stability: 1.25, lifespan: 2.0, magic: 1.15 },
     biomePref: ['swamp','tundra','badlands'],
     biomePenalty: { coastal: 0.85 },
+    soldierStrength: 1.4,
+    special: 'undead',
   },
   beastfolk: {
     name: 'Beastfolk',
@@ -122,14 +138,16 @@ const RACES = {
     flavor: 'Half-beast hunters who run down anything that flees. They thrive on open ground, scouting wide and striking fast.',
     mods: { research: 0.90, growth: 1.15, military: 1.15, armyGrowth: 1.10, scouting: 1.30 },
     biomePref: ['plains','savanna','steppe','forest'],
+    soldierStrength: 1.3,
   },
   insectoids: {
     name: 'Insectoids',
-    desc: 'A chitinous swarm. Numerous and tenacious — but no longer unstoppable.',
-    flavor: 'A single sprawling brood-mind in a million bodies. Insectoids grow steadily and hold ground well, but a rival with strong research or military focus can match their numbers. The swarm adapts; it does not overwhelm.',
+    desc: 'A chitinous swarm. Vast numbers, individually expendable.',
+    flavor: 'A single sprawling brood-mind in a million bodies. Insectoids grow steadily and hold ground well; their strength is attrition and territory, not individual warriors. A skilled rival can match their numbers — but stopping the tide is another matter.',
     mods: { research: 0.85, growth: 1.20, military: 1.05, defense: 1.20 },
     biomePref: ['jungle','swamp','desert','badlands'],
     popCapMod: 1.20,
+    soldierStrength: 0.75,
   },
 };
 

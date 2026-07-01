@@ -132,22 +132,30 @@ function tickYear(civ, year, world, map, others, log) {
   if (civ.stability < 30) growthRate *= 0.4;
   else if (civ.stability < 60) growthRate *= 0.8;
 
-  // Constructs: no biological growth, must be built from metal+knowledge
+  // Constructs: assembled from metal rather than born — efficiency scales with tech age.
   if (civ.raceData.special === 'constructed') {
-    const buildable = Math.min(civ.metal / 20, civ.knowledge / 50);
     growthRate = 0;
-    const built = Math.floor(buildable * 0.05);
+    const metalYield = Math.sqrt(civ.population) * 1.5 * getMod(civ, 'metal') * fitness;
+    const techEff = 1 + civ.techAge * 0.35;  // 1× Stone → ~6.6× Omega; gentler than 0.45
+    const desired = Math.floor(metalYield * 0.40 * techEff);
+    // Only assemble as many units as metal stockpile can fund (1 metal per unit).
+    const built = Math.min(desired, Math.floor(civ.metal));
     if (built > 0) {
       civ.population += built;
-      civ.metal -= built * 20;
+      civ.metal -= built;
     }
   } else {
     const popCap = (5000 + civ.territory * 800) * (civ.raceData.popCapMod || 1.0);
     let newPop;
     if (civ.population < popCap) {
-      newPop = civ.population * (1 + growthRate);
+      // Soft taper above 2M: prevents multi-trillion armies on 10k-year runs
+      // while still letting civilisations feel genuinely vast.
+      const taperedRate = civ.population > 2_000_000
+        ? growthRate * Math.pow(2_000_000 / civ.population, 0.6)
+        : growthRate;
+      newPop = civ.population * (1 + taperedRate);
     } else {
-      newPop = civ.population * (1 + growthRate * 0.1);
+      newPop = popCap; // hard cap — territory limits further growth
     }
     // Use rounding + accumulator so low populations can grow.
     civ._popFrac = (civ._popFrac || 0) + (newPop - Math.floor(newPop));
@@ -202,6 +210,10 @@ function tickYear(civ, year, world, map, others, log) {
   if (civ.army < armyTarget) {
     civ.army = Math.floor(civ.army + (armyTarget - civ.army) * 0.15);
   }
+  // Hard cap: army can never exceed the full population — tempMods.armyGrowth
+  // stacks multiplicatively across greatLeader events and would otherwise produce
+  // trillion-soldier armies on long runs.
+  if (civ.army > civ.population) civ.army = Math.floor(civ.population);
   // Cost upkeep
   civ.gold = Math.max(0, civ.gold - civ.army * 0.05);
   civ.food = Math.max(0, civ.food - civ.army * 0.1);
@@ -209,6 +221,8 @@ function tickYear(civ, year, world, map, others, log) {
   // --- MORALE & STABILITY (regression toward mean) ---
   civ.morale = clamp(civ.morale + (100 * getMod(civ,'morale') - civ.morale) * 0.05, 0, 200);
   civ.stability = clamp(civ.stability + (100 * getMod(civ,'stability') - civ.stability) * 0.05, 0, 200);
+  // Undead never route: morale never drops below 70 in the simulation.
+  if (civ.raceData.special === 'undead') civ.morale = Math.max(70, civ.morale);
 
   // --- WEAPON UNLOCK ---
   if (!civ.weaponUnlocked && civ.weapon) {

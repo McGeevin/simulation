@@ -24,7 +24,11 @@ class Renderer {
     this.flashEffect = 0;
     this.terrainCanvas = document.createElement('canvas');
     this.terrainCtx = this.terrainCanvas.getContext('2d');
+    this._zoom = 1;
+    this._panX = 0;
+    this._panY = 0;
     this.resize();
+    this._initInteraction();
   }
 
   resize() {
@@ -33,6 +37,48 @@ class Renderer {
     this.canvas.height = rect.height;
     this.computeTileSize();
     this.renderTerrainCache();
+  }
+
+  _initInteraction() {
+    const canvas = this.canvas;
+    canvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const mx = (e.clientX - rect.left) * scaleX;
+      const my = (e.clientY - rect.top)  * scaleY;
+      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+      const newZoom = Math.max(0.5, Math.min(10, this._zoom * factor));
+      this._panX = mx - (mx - this._panX) * (newZoom / this._zoom);
+      this._panY = my - (my - this._panY) * (newZoom / this._zoom);
+      this._zoom = newZoom;
+    }, { passive: false });
+
+    let dragging = false, lastX = 0, lastY = 0;
+    canvas.addEventListener('mousedown', e => {
+      if (e.button !== 0) return;
+      dragging = true;
+      lastX = e.clientX; lastY = e.clientY;
+      canvas.style.cursor = 'grabbing';
+    });
+    window.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      this._panX += (e.clientX - lastX) * scaleX;
+      this._panY += (e.clientY - lastY) * scaleY;
+      lastX = e.clientX; lastY = e.clientY;
+    });
+    window.addEventListener('mouseup', () => { dragging = false; canvas.style.cursor = ''; });
+    canvas.addEventListener('dblclick', () => this._resetView());
+  }
+
+  _resetView() {
+    this._zoom = 1;
+    this._panX = 0;
+    this._panY = 0;
   }
 
   computeTileSize() {
@@ -259,6 +305,8 @@ class Renderer {
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = '#05070b';
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.save();
+    ctx.setTransform(this._zoom, 0, 0, this._zoom, this._panX, this._panY);
     ctx.drawImage(this.terrainCanvas, this.offsetX, this.offsetY);
 
     const ts = this.tileSize;
@@ -303,7 +351,8 @@ class Renderer {
     }
     ctx.globalAlpha = 1;
 
-    // Screen-flash effect (triggered by special weapons)
+    ctx.restore();
+    // Screen-flash effect (screen space — after zoom restore)
     if (this.flashEffect > 0) {
       ctx.fillStyle = `rgba(255,255,255,${this.flashEffect.toFixed(2)})`;
       ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -449,8 +498,8 @@ class Renderer {
     // ---- construction state (renderer-owned) ----
     if (settlement._tierShown === undefined) {
       settlement._tierShown = settlement.tier;
-      settlement._build = 0;            // newly seen: animate it rising
-      settlement._constructing = true;
+      settlement._build = 1;            // already exists in the sim — show immediately
+      settlement._constructing = false;
     } else if (settlement.tier > settlement._tierShown) {
       settlement._tierShown = settlement.tier;
       settlement._build = 0;            // upgraded: rebuild animation
